@@ -1,0 +1,8 @@
+nesmu
+*.o
+*.pdf
+*.txt
+.*.sw*
+sha1/
+extras/
+calc.c
