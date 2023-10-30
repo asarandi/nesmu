@@ -11,33 +11,108 @@
 // ^ appendix a, summary of single cycle execution
 // http://www.oxyron.de/html/opcodes02.html
 
-#define IS_CFLAG (cpu->P & 0b00000001) != 0
-#define IS_ZFLAG (cpu->P & 0b00000010) != 0
-#define IS_IFLAG (cpu->P & 0b00000100) != 0
-#define IS_DFLAG (cpu->P & 0b00001000) != 0
-#define IS_VFLAG (cpu->P & 0b01000000) != 0
-#define IS_NFLAG (cpu->P & 0b10000000) != 0
+#define CFLAG 0b00000001
+#define ZFLAG 0b00000010
+#define IFLAG 0b00000100
+#define DFLAG 0b00001000
+#define BFLAG 0b00010000
+#define VFLAG 0b01000000
+#define NFLAG 0b10000000
 
-#define SET_CFLAG (cpu->P |= 0b00000001)
-#define SET_ZFLAG (cpu->P |= 0b00000010)
-#define SET_IFLAG (cpu->P |= 0b00000100)
-#define SET_DFLAG (cpu->P |= 0b00001000)
-#define SET_VFLAG (cpu->P |= 0b01000000)
-#define SET_NFLAG (cpu->P |= 0b10000000)
+#define IS_CFLAG (cpu->P & CFLAG)
+#define IS_ZFLAG (cpu->P & ZFLAG)
+#define IS_IFLAG (cpu->P & IFLAG)
+#define IS_DFLAG (cpu->P & DFLAG)
+#define IS_VFLAG (cpu->P & VFLAG)
+#define IS_NFLAG (cpu->P & NFLAG)
 
-#define CLEAR_CFLAG (cpu->P &= ~0b00000001)
-#define CLEAR_ZFLAG (cpu->P &= ~0b00000010)
-#define CLEAR_IFLAG (cpu->P &= ~0b00000100)
-#define CLEAR_DFLAG (cpu->P &= ~0b00001000)
-#define CLEAR_VFLAG (cpu->P &= ~0b01000000)
-#define CLEAR_NFLAG (cpu->P &= ~0b10000000)
+#define SET_CFLAG (cpu->P |= CFLAG)
+#define SET_ZFLAG (cpu->P |= ZFLAG)
+#define SET_IFLAG (cpu->P |= IFLAG)
+#define SET_DFLAG (cpu->P |= DFLAG)
+#define SET_VFLAG (cpu->P |= VFLAG)
+#define SET_NFLAG (cpu->P |= NFLAG)
 
-#define ZFLAG_(VALUE) (VALUE == 0) ? SET_ZFLAG : CLEAR_ZFLAG
-#define NFLAG_(VALUE) (VALUE & 128) ? SET_NFLAG : CLEAR_NFLAG
+#define CLEAR_CFLAG (cpu->P &= ~CFLAG)
+#define CLEAR_ZFLAG (cpu->P &= ~ZFLAG)
+#define CLEAR_IFLAG (cpu->P &= ~IFLAG)
+#define CLEAR_DFLAG (cpu->P &= ~DFLAG)
+#define CLEAR_VFLAG (cpu->P &= ~VFLAG)
+#define CLEAR_NFLAG (cpu->P &= ~NFLAG)
 
-#define ZNFLAGS_(VALUE)                                                        \
-    ZFLAG_(VALUE);                                                             \
-    NFLAG_(VALUE)
+#define UPDATE_ZFLAG(VALUE) ((VALUE) == 0) ? SET_ZFLAG : CLEAR_ZFLAG
+#define UPDATE_VFLAG(VALUE) ((VALUE)&VFLAG) ? SET_VFLAG : CLEAR_VFLAG
+#define UPDATE_NFLAG(VALUE) ((VALUE)&NFLAG) ? SET_NFLAG : CLEAR_NFLAG
+
+#define UPDATE_ZNFLAGS(VALUE)                                                  \
+    UPDATE_ZFLAG(VALUE);                                                       \
+    UPDATE_NFLAG(VALUE)
+
+// assuming PC is at beginning of current instruction
+
+static inline uint8_t read_immediate_lo(t_cpu *cpu) {
+    return cpu->read(cpu->userdata, cpu->PC + 1);
+}
+
+static inline uint8_t read_immediate_hi(t_cpu *cpu) {
+    return cpu->read(cpu->userdata, cpu->PC + 2);
+}
+
+static inline uint16_t address_absolute(t_cpu *cpu) {
+    uint8_t lo = read_immediate_lo(cpu);
+    uint8_t hi = read_immediate_hi(cpu);
+    return (hi << 8) | lo;
+}
+
+static inline uint16_t address_absolute_x(t_cpu *cpu) {
+    uint16_t abs = address_absolute(cpu);
+    uint16_t abx = abs + cpu->X;
+    cpu->extra_cycles = (abs >> 8) != (abx >> 8);
+    return abx;
+}
+
+static inline uint16_t address_absolute_y(t_cpu *cpu) {
+    uint16_t abs = address_absolute(cpu);
+    uint16_t aby = abs + cpu->Y;
+    cpu->extra_cycles = (abs >> 8) != (aby >> 8);
+    return aby;
+}
+
+static inline uint16_t indirection(t_cpu *cpu, uint16_t addr_lo,
+                                   uint16_t addr_hi) {
+    uint8_t lo = cpu->read(cpu->userdata, addr_lo);
+    uint8_t hi = cpu->read(cpu->userdata, addr_hi);
+    return (hi << 8) | lo;
+}
+
+static inline uint16_t address_indirect(t_cpu *cpu) {
+    uint16_t addr_lo = address_absolute(cpu);
+    uint16_t addr_hi = (addr_lo & 0xff00) | ((addr_lo + 1) & 0x00ff);
+    return indirection(cpu, addr_lo, addr_hi);
+} // _ind
+
+static inline uint16_t address_indirect_x(t_cpu *cpu) {
+    uint8_t addr_lo = read_immediate_lo(cpu) + cpu->X;
+    uint8_t addr_hi = addr_lo + 1;
+    return indirection(cpu, addr_lo, addr_hi);
+} // _idx
+
+static inline uint16_t address_indirect_y(t_cpu *cpu) {
+    uint8_t addr_lo = read_immediate_lo(cpu);
+    uint8_t addr_hi = addr_lo + 1;
+    uint16_t ind = indirection(cpu, addr_lo, addr_hi);
+    uint16_t idy = ind + cpu->Y;
+    cpu->extra_cycles = (ind >> 8) != (idy >> 8);
+    return idy;
+} // _idy
+
+static inline uint16_t address_relative(t_cpu *cpu) {
+    int16_t addr_rel = (int16_t)(int8_t)read_immediate_lo(cpu);
+    uint16_t a = cpu->PC + 2;
+    uint16_t b = a + (uint16_t)addr_rel;
+    cpu->extra_cycles = ((a >> 8) != (b >> 8)) ? 3 : 1;
+    return b;
+} // _rel
 
 static uint8_t read(t_cpu *cpu, uint16_t addr) {
     return cpu->read(cpu->userdata, addr);
@@ -79,8 +154,10 @@ static uint16_t stack_pop16(t_cpu *cpu) {
 #define WRITE_REGISTER_X(VALUE) cpu->X = VALUE
 #define READ_REGISTER_Y cpu->Y
 #define WRITE_REGISTER_Y(VALUE) cpu->Y = VALUE
-#define ADDR_IMMEDIATE_LO cpu->PC + 1
-#define READ_IMMEDIATE_LO read(cpu, ADDR_IMMEDIATE_LO)
+
+// #define ADDR_IMMEDIATE_LO cpu->PC + 1
+#define READ_IMMEDIATE_LO read_immediate_lo(cpu)
+
 #define ADDR_ZERO_PAGE READ_IMMEDIATE_LO
 #define READ_ZERO_PAGE read(cpu, ADDR_ZERO_PAGE)
 
@@ -104,33 +181,34 @@ static uint16_t stack_pop16(t_cpu *cpu) {
 #define WRITE_ZERO_PAGE_Y(VALUE) write(cpu, ADDR_ZERO_PAGE_Y, VALUE)
 #define ADDR_RELATIVE cpu->PC + (int16_t)(int8_t)READ_IMMEDIATE_LO
 #define READ_RELATIVE read(ADDR_RELATIVE)
-#define ADDR_ABSOLUTE read16(cpu, ADDR_IMMEDIATE_LO)
+
+#define ADDR_ABSOLUTE address_absolute(cpu)
 #define READ_ABSOLUTE read(cpu, ADDR_ABSOLUTE)
 #define WRITE_ABSOLUTE(VALUE) write(cpu, ADDR_ABSOLUTE, VALUE)
-#define ADDR_ABSOLUTE_X ADDR_ABSOLUTE + cpu->X
+
+#define ADDR_ABSOLUTE_X address_absolute_x(cpu)
 #define READ_ABSOLUTE_X read(cpu, ADDR_ABSOLUTE_X)
 #define WRITE_ABSOLUTE_X(VALUE) write(cpu, ADDR_ABSOLUTE_X, VALUE)
-#define ADDR_ABSOLUTE_Y ADDR_ABSOLUTE + cpu->Y
+
+#define ADDR_ABSOLUTE_Y address_absolute_y(cpu)
 #define READ_ABSOLUTE_Y read(cpu, ADDR_ABSOLUTE_Y)
 #define WRITE_ABSOLUTE_Y(VALUE) write(cpu, ADDR_ABSOLUTE_Y, VALUE)
-// #define ADDR_INDIRECT read16(cpu, ADDR_ABSOLUTE)
-#define ADDR_INDIRECT                                                          \
-    ((READ_ABSOLUTE) + (256 * (read(cpu, ((ADDR_ABSOLUTE & 0xff00) |           \
-                                          ((ADDR_ABSOLUTE + 1) & 0xff))))))
 
+#define ADDR_INDIRECT address_indirect(cpu)
 #define READ_INDIRECT read(cpu, ADDR_INDIRECT)
-#define ADDR_INDIRECT_X ((READ_ZERO_PAGE_X_LO) + (256 * (READ_ZERO_PAGE_X_HI)))
+
+#define ADDR_INDIRECT_X address_indirect_x(cpu)
 #define READ_INDIRECT_X read(cpu, ADDR_INDIRECT_X)
 #define WRITE_INDIRECT_X(VALUE) write(cpu, ADDR_INDIRECT_X, VALUE)
 
-#define ADDR_INDIRECT_Y ADDR_ZERO_PAGE_INDIRECT_WRAPPED + cpu->Y
+#define ADDR_INDIRECT_Y address_indirect_y(cpu)
 #define READ_INDIRECT_Y read(cpu, ADDR_INDIRECT_Y)
 #define WRITE_INDIRECT_Y(VALUE) write(cpu, ADDR_INDIRECT_Y, VALUE)
 
 #define LOAD_FN(NAME, DST, MACRO)                                              \
     void NAME(t_cpu *cpu) {                                                    \
         DST = MACRO;                                                           \
-        ZNFLAGS_(DST);                                                         \
+        UPDATE_ZNFLAGS(DST);                                                   \
     }
 LOAD_FN(lda_imm, cpu->A, READ_IMMEDIATE_LO) // 0xa9
 LOAD_FN(lda_zpg, cpu->A, READ_ZERO_PAGE)    // 0xa5
@@ -170,7 +248,7 @@ STORE_FN(sty_abs, cpu->Y, WRITE_ABSOLUTE)    // 0x8c
 #define AND_FN(NAME, MACRO)                                                    \
     void NAME(t_cpu *cpu) {                                                    \
         cpu->A &= MACRO;                                                       \
-        ZNFLAGS_(cpu->A);                                                      \
+        UPDATE_ZNFLAGS(cpu->A);                                                \
     }
 AND_FN(and_imm, READ_IMMEDIATE_LO) // 0x29
 AND_FN(and_zpg, READ_ZERO_PAGE)    // 0x25
@@ -184,7 +262,7 @@ AND_FN(and_idy, READ_INDIRECT_Y)   // 0x31
 #define EOR_FN(NAME, MACRO)                                                    \
     void NAME(t_cpu *cpu) {                                                    \
         cpu->A ^= MACRO;                                                       \
-        ZNFLAGS_(cpu->A);                                                      \
+        UPDATE_ZNFLAGS(cpu->A);                                                \
     }
 EOR_FN(eor_imm, READ_IMMEDIATE_LO) // 0x49
 EOR_FN(eor_zpg, READ_ZERO_PAGE)    // 0x45
@@ -198,7 +276,7 @@ EOR_FN(eor_idy, READ_INDIRECT_Y)   // 0x51
 #define ORA_FN(NAME, MACRO)                                                    \
     void NAME(t_cpu *cpu) {                                                    \
         cpu->A |= MACRO;                                                       \
-        ZNFLAGS_(cpu->A);                                                      \
+        UPDATE_ZNFLAGS(cpu->A);                                                \
     }
 ORA_FN(ora_imm, READ_IMMEDIATE_LO) // 0x09
 ORA_FN(ora_zpg, READ_ZERO_PAGE)    // 0x05
@@ -213,8 +291,8 @@ ORA_FN(ora_idy, READ_INDIRECT_Y)   // 0x11
     void NAME(t_cpu *cpu) {                                                    \
         cpu->u8 = MACRO;                                                       \
         cpu->u8 & cpu->A ? CLEAR_ZFLAG : SET_ZFLAG;                            \
-        cpu->u8 & 0b01000000 ? SET_VFLAG : CLEAR_VFLAG;                        \
-        cpu->u8 & 0b10000000 ? SET_NFLAG : CLEAR_NFLAG;                        \
+        UPDATE_VFLAG(cpu->u8);                                                 \
+        UPDATE_NFLAG(cpu->u8);                                                 \
     }
 
 BIT_FN(bit_zpg, READ_ZERO_PAGE) // 0x24
@@ -225,7 +303,7 @@ BIT_FN(bit_abs, READ_ABSOLUTE)  // 0x2c
         cpu->u8 = MACRO;                                                       \
         (REGISTER < cpu->u8) ? CLEAR_CFLAG : SET_CFLAG;                        \
         cpu->u8 = REGISTER - cpu->u8;                                          \
-        ZNFLAGS_(cpu->u8);                                                     \
+        UPDATE_ZNFLAGS(cpu->u8);                                               \
     }
 
 COMPARE_FN(cmp_imm, cpu->A, READ_IMMEDIATE_LO) // 0xc9
@@ -252,7 +330,7 @@ COMPARE_FN(cpy_abs, cpu->Y, READ_ABSOLUTE)     // 0xcc
         cpu->u16 > 255 ? SET_CFLAG : CLEAR_CFLAG;                              \
         IS_ADC_OVERFLOW ? SET_VFLAG : CLEAR_VFLAG;                             \
         cpu->A = cpu->u16;                                                     \
-        ZNFLAGS_(cpu->A);                                                      \
+        UPDATE_ZNFLAGS(cpu->A);                                                \
     }
 
 ADDCARRY_FN(adc_imm, READ_IMMEDIATE_LO) // 0x69
@@ -271,7 +349,7 @@ ADDCARRY_FN(adc_idy, READ_INDIRECT_Y)   // 0x71
         cpu->u16 > 255 ? SET_CFLAG : CLEAR_CFLAG;                              \
         IS_ADC_OVERFLOW ? SET_VFLAG : CLEAR_VFLAG;                             \
         cpu->A = cpu->u16;                                                     \
-        ZNFLAGS_(cpu->A);                                                      \
+        UPDATE_ZNFLAGS(cpu->A);                                                \
     }
 
 SUBCARRY_FN(sbc_imm, READ_IMMEDIATE_LO) // 0xe9
@@ -288,7 +366,7 @@ SUBCARRY_FN(sbc_idy, READ_INDIRECT_Y)   // 0xf1
         cpu->u8 = READ;                                                        \
         cpu->u8 & 128 ? SET_CFLAG : CLEAR_CFLAG;                               \
         cpu->u8 <<= 1;                                                         \
-        ZNFLAGS_(cpu->u8);                                                     \
+        UPDATE_ZNFLAGS(cpu->u8);                                               \
         WRITE(cpu->u8);                                                        \
     }
 
@@ -303,7 +381,7 @@ ASL_FN(asl_abx, READ_ABSOLUTE_X, WRITE_ABSOLUTE_X)   // 0x1e
         cpu->u8 = READ;                                                        \
         cpu->u8 & 1 ? SET_CFLAG : CLEAR_CFLAG;                                 \
         cpu->u8 >>= 1;                                                         \
-        ZNFLAGS_(cpu->u8);                                                     \
+        UPDATE_ZNFLAGS(cpu->u8);                                               \
         WRITE(cpu->u8);                                                        \
     }
 
@@ -319,7 +397,7 @@ LSR_FN(lsr_abx, READ_ABSOLUTE_X, WRITE_ABSOLUTE_X)   // 0x5e
         cpu->u16 = (cpu->u16 << 1) | (IS_CFLAG);                               \
         cpu->u16 & 256 ? SET_CFLAG : CLEAR_CFLAG;                              \
         cpu->u8 = cpu->u16;                                                    \
-        ZNFLAGS_(cpu->u8);                                                     \
+        UPDATE_ZNFLAGS(cpu->u8);                                               \
         WRITE(cpu->u8);                                                        \
     }
 
@@ -336,7 +414,7 @@ ROL_FN(rol_abx, READ_ABSOLUTE_X, WRITE_ABSOLUTE_X)   // 0x3e
         cpu->u16 & 1 ? SET_CFLAG : CLEAR_CFLAG;                                \
         cpu->u16 >>= 1;                                                        \
         cpu->u8 = cpu->u16;                                                    \
-        ZNFLAGS_(cpu->u8);                                                     \
+        UPDATE_ZNFLAGS(cpu->u8);                                               \
         WRITE(cpu->u8);                                                        \
     }
 
@@ -350,7 +428,7 @@ ROR_FN(ror_abx, READ_ABSOLUTE_X, WRITE_ABSOLUTE_X)   // 0x7e
     void NAME(t_cpu *cpu) {                                                    \
         cpu->u8 = READ;                                                        \
         cpu->u8 -= 1;                                                          \
-        ZNFLAGS_(cpu->u8);                                                     \
+        UPDATE_ZNFLAGS(cpu->u8);                                               \
         WRITE(cpu->u8);                                                        \
     }
 
@@ -365,7 +443,7 @@ DECREMENT_FN(dey_imp, READ_REGISTER_Y, WRITE_REGISTER_Y)   // 0x88
     void NAME(t_cpu *cpu) {                                                    \
         cpu->u8 = READ;                                                        \
         cpu->u8 += 1;                                                          \
-        ZNFLAGS_(cpu->u8);                                                     \
+        UPDATE_ZNFLAGS(cpu->u8);                                               \
         WRITE(cpu->u8);                                                        \
     }
 
@@ -376,21 +454,35 @@ INCREMENT_FN(inc_abx, READ_ABSOLUTE_X, WRITE_ABSOLUTE_X)   // 0xfe
 INCREMENT_FN(inx_imp, READ_REGISTER_X, WRITE_REGISTER_X)   // 0xe8
 INCREMENT_FN(iny_imp, READ_REGISTER_Y, WRITE_REGISTER_Y)   // 0xc8
 
-#define READ_I16 (uint16_t)(int16_t)(int8_t)READ_IMMEDIATE_LO
-
-void bcc_rel(t_cpu *cpu) { cpu->PC += (IS_CFLAG) ? 0 : READ_I16; } // 0x90
-void bcs_rel(t_cpu *cpu) { cpu->PC += (IS_CFLAG) ? READ_I16 : 0; } // 0xb0
-void bne_rel(t_cpu *cpu) { cpu->PC += (IS_ZFLAG) ? 0 : READ_I16; } // 0xf0
-void beq_rel(t_cpu *cpu) { cpu->PC += (IS_ZFLAG) ? READ_I16 : 0; } // 0x30
-void bpl_rel(t_cpu *cpu) { cpu->PC += (IS_NFLAG) ? 0 : READ_I16; } // 0xd0
-void bmi_rel(t_cpu *cpu) { cpu->PC += (IS_NFLAG) ? READ_I16 : 0; } // 0x10
-void bvc_rel(t_cpu *cpu) { cpu->PC += (IS_VFLAG) ? 0 : READ_I16; } // 0x50
-void bvs_rel(t_cpu *cpu) { cpu->PC += (IS_VFLAG) ? READ_I16 : 0; } // 0x70
+void bcc_rel(t_cpu *cpu) {
+    cpu->PC = (IS_CFLAG) ? cpu->PC : address_relative(cpu);
+} // 0x90
+void bcs_rel(t_cpu *cpu) {
+    cpu->PC = (IS_CFLAG) ? address_relative(cpu) : cpu->PC;
+} // 0xb0
+void bne_rel(t_cpu *cpu) {
+    cpu->PC = (IS_ZFLAG) ? cpu->PC : address_relative(cpu);
+} // 0xd0
+void beq_rel(t_cpu *cpu) {
+    cpu->PC = (IS_ZFLAG) ? address_relative(cpu) : cpu->PC;
+} // 0xf0
+void bpl_rel(t_cpu *cpu) {
+    cpu->PC = (IS_NFLAG) ? cpu->PC : address_relative(cpu);
+} // 0x10
+void bmi_rel(t_cpu *cpu) {
+    cpu->PC = (IS_NFLAG) ? address_relative(cpu) : cpu->PC;
+} // 0x30
+void bvc_rel(t_cpu *cpu) {
+    cpu->PC = (IS_VFLAG) ? cpu->PC : address_relative(cpu);
+} // 0x50
+void bvs_rel(t_cpu *cpu) {
+    cpu->PC = (IS_VFLAG) ? address_relative(cpu) : cpu->PC;
+} // 0x70
 
 #define TRANSFER_FN(NAME, SRC, DST)                                            \
     void NAME(t_cpu *cpu) {                                                    \
         DST = SRC;                                                             \
-        ZNFLAGS_(DST);                                                         \
+        UPDATE_ZNFLAGS(DST);                                                   \
     }
 TRANSFER_FN(tax_imp, cpu->A, cpu->X)          // 0xaa
 TRANSFER_FN(tay_imp, cpu->A, cpu->Y)          // 0xa8
@@ -405,7 +497,7 @@ void pha_imp(t_cpu *cpu) { stack_push(cpu, cpu->A); }              // 0x48
 void php_imp(t_cpu *cpu) { stack_push(cpu, cpu->P | 0b00110000); } // 0x08
 void pla_imp(t_cpu *cpu) {
     cpu->A = stack_pop(cpu);
-    ZNFLAGS_(cpu->A);
+    UPDATE_ZNFLAGS(cpu->A);
 } // 0x68
 void plp_imp(t_cpu *cpu) { cpu->P = stack_pop(cpu); } // 0x28
 
@@ -421,12 +513,12 @@ void sei_imp(t_cpu *cpu) { SET_IFLAG; } // 0x78
 void brk_imp(t_cpu *cpu) {
     stack_push16(cpu, cpu->PC + 2);
     stack_push(cpu, cpu->P | 0b00110000);
-    cpu->P |= 0b00000100;
+    cpu->P |= IFLAG;
     cpu->PC = read16(cpu, 0xfffe);
 } // 0x00
 
 void rti_imp(t_cpu *cpu) {
-    cpu->P = stack_pop(cpu) & ~0b00010000;
+    cpu->P = stack_pop(cpu) & ~BFLAG;
     cpu->PC = stack_pop16(cpu);
 } // 0x40
 void rts_imp(t_cpu *cpu) {
@@ -642,151 +734,6 @@ struct instruction insns[] = {
 // NDY     ($xx),Y
 //
 
-static inline bool is_absolute_x(uint8_t opcode) {
-    uint8_t arr[] = {0x7d, 0x3d, 0xdd, 0x5d, 0xbd, 0xbc, 0x1d, 0xfd};
-    for (int i = 0; i < 8; i++) {
-        if (opcode == arr[i]) {
-            return true;
-        }
-    }
-    return false;
-}
-
-static inline bool is_absolute_x_penalty(t_cpu *cpu) {
-    uint8_t opcode;
-    uint16_t a, b;
-
-    opcode = cpu->read(cpu->userdata, cpu->PC);
-    if (!is_absolute_x(opcode))
-        return false;
-    a = ADDR_ABSOLUTE;
-    b = ADDR_ABSOLUTE_X;
-    return (a >> 8) != (b >> 8);
-}
-
-static inline bool is_absolute_y(uint8_t opcode) {
-    uint8_t arr[] = {0x79, 0x39, 0xd9, 0x59, 0xb9, 0xbe, 0x19, 0xf9};
-    for (int i = 0; i < 8; i++) {
-        if (opcode == arr[i]) {
-            return true;
-        }
-    }
-    return false;
-}
-
-static inline bool is_absolute_y_penalty(t_cpu *cpu) {
-    uint8_t opcode;
-    uint16_t a, b;
-
-    opcode = cpu->read(cpu->userdata, cpu->PC);
-    if (!is_absolute_y(opcode))
-        return false;
-    a = ADDR_ABSOLUTE;
-    b = ADDR_ABSOLUTE_Y;
-    return (a >> 8) != (b >> 8);
-}
-
-static inline bool is_indirect_y(uint8_t opcode) {
-    uint8_t arr[] = {0x71, 0x31, 0xd1, 0x51, 0xb1, 0x11, 0xf1};
-    for (int i = 0; i < 7; i++) {
-        if (opcode == arr[i]) {
-            return true;
-        }
-    }
-    return false;
-}
-
-static inline bool is_indirect_y_penalty(t_cpu *cpu) {
-    uint8_t opcode;
-    uint16_t a, b;
-
-    opcode = cpu->read(cpu->userdata, cpu->PC);
-    if (!is_indirect_y(opcode))
-        return false;
-    a = read16(cpu, READ_IMMEDIATE_LO);
-    b = a + cpu->Y;
-    return (a >> 8) != (b >> 8);
-}
-
-static inline bool is_branching_instruction(uint8_t opcode) {
-    uint8_t arr[] = {0x90, 0xb0, 0xf0, 0x30, 0xd0, 0x10, 0x50, 0x70};
-    for (int i = 0; i < 8; i++) {
-        if (opcode == arr[i]) {
-            return true;
-        }
-    }
-    return false;
-}
-
-t_ins *get_instruction(uint8_t opcode) {
-    for (int i = 0; i < 151; i++) {
-        if (insns[i].opcode == opcode)
-            return &insns[i];
-    }
-    return NULL;
-}
-
-int disasm_get_instruction_length(uint8_t *code) {
-    t_ins *ins = get_instruction(*code);
-    return ins ? ins->num_bytes : 0;
-}
-
-static bool is_endless_loop(t_cpu *cpu) {
-    uint8_t a = read(cpu, cpu->PC);
-    uint8_t b = read(cpu, cpu->PC + 1);
-    return  a == 0xf0 && b == 0xfe && (IS_ZFLAG);
-}
-
-int run_opcode(t_cpu *cpu) {
-    uint16_t opcode, cycles, pc;
-
-    opcode = cpu->read(cpu->userdata, cpu->PC);
-    t_ins *ins = get_instruction(opcode);
-
-    printf("PC: %04x Ins: %s Bytes: %02x%02x%02x A:%02x X:%02x Y:%02x P:%02x S:%02x CYC:%04d\n",
-           cpu->PC,
-           ins ? ins->name : "???",
-           read(cpu, cpu->PC),
-           read(cpu, cpu->PC + 1),
-           read(cpu, cpu->PC + 2),
-           cpu->A,
-           cpu->X,
-           cpu->Y,
-           cpu->P,
-           cpu->S,
-           cpu->cycles);
-
-    if (!ins) {
-        printf("unknown instruction %02x\n", opcode);
-        exit(1);
-    }
-
-    if (is_endless_loop(cpu)) {
-        printf("endless loop detected\n");
-        exit(1);
-    }
-
-    cycles = ins->num_cycles;
-    if (ins->has_extra_cycles) {
-        cycles += is_absolute_x_penalty(cpu) || is_absolute_y_penalty(cpu) ||
-                  is_indirect_y_penalty(cpu);
-    }
-
-    pc = cpu->PC;
-    ins->fn(cpu);
-    if (cpu->PC == pc) {
-        cpu->PC += ins->num_bytes;
-    } else {
-        if (is_branching_instruction(opcode)) {
-            pc += ins->num_bytes;
-            cpu->PC += ins->num_bytes;
-            cycles += ((cpu->PC >> 8) != (pc >> 8)) ? 3 : 1;
-        }
-    }
-
-    return cycles;
-}
-
 // 1 byte  accumulator
 // 1 byte  implied
 //
@@ -802,3 +749,56 @@ int run_opcode(t_cpu *cpu) {
 // 3 bytes absolute_x
 // 3 bytes absolute_y
 // 3 bytes indirect
+
+t_ins *get_instruction(uint8_t opcode) {
+    for (int i = 0; i < 151; i++) {
+        if (insns[i].opcode == opcode)
+            return &insns[i];
+    }
+    return NULL;
+}
+
+static bool is_endless_loop(t_cpu *cpu) {
+    uint8_t a = read(cpu, cpu->PC);
+    uint8_t b = read(cpu, cpu->PC + 1);
+    return a == 0xf0 && b == 0xfe && (IS_ZFLAG);
+}
+
+int run_opcode(t_cpu *cpu, bool debug) {
+    uint16_t opcode, pc;
+    int retval;
+
+    opcode = cpu->read(cpu->userdata, cpu->PC);
+    t_ins *ins = get_instruction(opcode);
+
+    if (debug) {
+        printf(
+            "PC: %04x Ins: %s Bytes: %02x%02x%02x A:%02X X:%02X Y:%02X P:%02X "
+            "SP:%02X PPU:%3d,%3d VBL:%d CYC:%d\n",
+            cpu->PC, ins ? ins->name : "???", read(cpu, cpu->PC),
+            read(cpu, cpu->PC + 1), read(cpu, cpu->PC + 2), cpu->A, cpu->X,
+            cpu->Y, cpu->P | 0b00100000, cpu->S, ppu_get_y(), ppu_get_x(),
+            ppu_read(0, 0x2002) == 0 ? 0 : 1, cpu->cycles);
+    }
+
+    if (!ins) {
+        printf("unknown instruction %02x\n", opcode);
+        exit(1);
+    }
+
+    if (is_endless_loop(cpu)) {
+        printf("endless loop detected\n");
+        exit(1);
+    }
+
+    pc = cpu->PC;
+    cpu->extra_cycles = 0;
+    ins->fn(cpu);
+    if (cpu->PC == pc) {
+        cpu->PC += ins->num_bytes;
+    }
+
+    retval = ins->num_cycles;
+    retval += ins->has_extra_cycles ? cpu->extra_cycles : 0;
+    return retval;
+}

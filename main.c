@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
@@ -17,7 +18,7 @@ uint8_t cpu_read(void *userdata, uint16_t addr) {
         return memory[addr & 0x7ff];
     } else if (0x2000 <= addr && addr < 0x4000) {
         // PPU
-        return memory[0x2000 + (addr & 7)];
+        return ppu_read(userdata, 0x2000 + (addr & 7));
     } else if (0x4000 <= addr && addr < 0x4020) {
         // APU
         return memory[addr];
@@ -29,7 +30,7 @@ uint8_t cpu_read(void *userdata, uint16_t addr) {
 void cpu_write(void *userdata, uint16_t addr, uint8_t val) {
     uint8_t *memory = (uint8_t *)userdata;
 
-    // printf("write, addr: %04x, value: %02x\n", addr, val);
+    printf("write, addr: %04x, value: %02x\n", addr, val);
     if (0x6004 <= addr && addr < 0x6100) {
         if (val)
             putchar(val);
@@ -41,7 +42,7 @@ void cpu_write(void *userdata, uint16_t addr, uint8_t val) {
         return;
     } else if (0x2000 <= addr && addr < 0x4000) {
         // PPU
-        memory[0x2000 + (addr & 7)] = val;
+        ppu_write(userdata, 0x2000 + (addr & 7), val);
         return;
     } else if (0x4000 <= addr && addr < 0x4020) {
         // APU
@@ -53,8 +54,8 @@ void cpu_write(void *userdata, uint16_t addr, uint8_t val) {
     return;
 }
 
-int main(int ac, char **av) {
-    int fd, ret, i;
+int main(int argc, char *argv[]) {
+    int fd, ret, opt, i, debug = 0;
     struct stat st;
     size_t size;
     void *data;
@@ -62,9 +63,23 @@ int main(int ac, char **av) {
     uint8_t memory[0x10000];
     t_cpu cpu;
 
-    assert(ac == 2);
+    while ((opt = getopt(argc, argv, "d")) != -1) {
+        switch (opt) {
+        case 'd':
+            debug = 1;
+            break;
+        default: /* '?' */
+            fprintf(stderr, "usage: %s [-d] rom\n", argv[0]);
+            exit(EXIT_FAILURE);
+        }
+    }
 
-    fd = open(av[1], O_RDONLY);
+    if (optind >= argc) {
+        fprintf(stderr, "expected argument after options\n");
+        exit(EXIT_FAILURE);
+    }
+
+    fd = open(argv[optind], O_RDONLY);
     if (fd == -1) {
         perror("open()");
         return 1;
@@ -105,16 +120,18 @@ int main(int ac, char **av) {
     cpu.write = cpu_write;
     cpu.PC = memory[0xfffc] + 256 * memory[0xfffd];
     //    cpu.PC = 0xc000;
-    cpu.cycles = 0; // nestest.log, nintendulator
+    cpu.cycles = 7; // nestest.log, nintendulator
 
     for (i = 0; i < 9999999; i++) {
-        cpu.cycles += run_opcode(&cpu);
+        ppu_update(cpu.cycles);
+        cpu.cycles += run_opcode(&cpu, debug);
     }
 
-    printf("%02x%02x\n", memory[2], memory[3]);
-
-    for (i = 0; i < 32; i++) {
-        printf("%02x%s", memory[0x6000 + i], i == 31 ? "\n" : "");
+    if (debug) {
+        printf("%02x%02x\n", memory[2], memory[3]);
+        for (i = 0; i < 32; i++) {
+            printf("%02x%s", memory[0x6000 + i], i == 31 ? "\n" : "");
+        }
     }
 
     return 0;
