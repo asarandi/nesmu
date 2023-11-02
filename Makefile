@@ -1,5 +1,6 @@
-CFLAGS += -Wall -Werror -Wextra
-CFLAGS += -g -Wno-unused-but-set-parameter -Wno-unused-but-set-variable -Wno-unused-variable
+CFLAGS += -g -Wall -Werror -Wextra
+CFLAGS += -Wno-unused-but-set-parameter -Wno-unused-parameter
+CFLAGS += -Wno-unused-but-set-variable -Wno-unused-variable
 LDFLAGS += -g
 SRC = main.c cpu.c ppu.c
 

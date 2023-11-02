@@ -18,9 +18,12 @@ uint8_t cpu_read(void *userdata, uint16_t addr) {
         return memory[addr & 0x7ff];
     } else if (0x2000 <= addr && addr < 0x4000) {
         // PPU
+        //    printf("PPU read, addr: %04x, value: %02x\n",
+        //    0x2000 + (addr & 7), memory[0x2000 + (addr & 7)]);
         return ppu_read(userdata, 0x2000 + (addr & 7));
     } else if (0x4000 <= addr && addr < 0x4020) {
         // APU
+        printf("APU read, addr: %04x, value: %02x\n", addr, memory[addr]);
         return memory[addr];
     }
 
@@ -30,7 +33,6 @@ uint8_t cpu_read(void *userdata, uint16_t addr) {
 void cpu_write(void *userdata, uint16_t addr, uint8_t val) {
     uint8_t *memory = (uint8_t *)userdata;
 
-    printf("write, addr: %04x, value: %02x\n", addr, val);
     if (0x6004 <= addr && addr < 0x6100) {
         if (val)
             putchar(val);
@@ -42,9 +44,12 @@ void cpu_write(void *userdata, uint16_t addr, uint8_t val) {
         return;
     } else if (0x2000 <= addr && addr < 0x4000) {
         // PPU
+        //        printf("PPU write, addr: %04x, value: %02x\n", 0x2000 + (addr
+        //        & 7), val);
         ppu_write(userdata, 0x2000 + (addr & 7), val);
         return;
     } else if (0x4000 <= addr && addr < 0x4020) {
+        printf("APU write, addr: %04x, value: %02x\n", addr, val);
         // APU
         memory[addr] = val;
         return;
@@ -60,8 +65,8 @@ int main(int argc, char *argv[]) {
     size_t size;
     void *data;
 
-    uint8_t memory[0x10000];
-    t_cpu cpu;
+    t_nes mynes;
+    t_nes *nes = &mynes;
 
     while ((opt = getopt(argc, argv, "d")) != -1) {
         switch (opt) {
@@ -101,37 +106,30 @@ int main(int argc, char *argv[]) {
     }
     (void)close(fd);
 
-    memset(memory, 0, sizeof(memory));
+    memset(nes, 0, sizeof(*nes));
+
     if (size == 16 + 32768 + 8192) {
-        memcpy(memory + 0x8000, data + 16, 0x8000);
+        memcpy(nes->memory + 0x8000, data + 16, 0x8000);
     } else if (size == 16 + 16384 + 8192) {
-        memcpy(memory + 0x8000, data + 16, 0x4000);
-        memcpy(memory + 0xc000, data + 16, 0x4000);
+        memcpy(nes->memory + 0x8000, data + 16, 0x4000);
+        memcpy(nes->memory + 0xc000, data + 16, 0x4000);
     } else {
         assert(false);
     }
     (void)munmap(data, size);
 
-    memset(&cpu, 0, sizeof(t_cpu));
-    cpu.S = 0xfd;
-    cpu.P = 0x24;
-    cpu.userdata = memory;
-    cpu.read = cpu_read;
-    cpu.write = cpu_write;
-    cpu.PC = memory[0xfffc] + 256 * memory[0xfffd];
-    //    cpu.PC = 0xc000;
-    cpu.cycles = 7; // nestest.log, nintendulator
+    nes->cpu.S = 0xfd;
+    nes->cpu.P = 0x24;
+    nes->cpu.userdata = nes;
+    nes->cpu.read = cpu_read;
+    nes->cpu.write = cpu_write;
+    nes->cpu.PC = nes->memory[0xfffc] + 256 * nes->memory[0xfffd];
+    // nes->cpu.PC = 0xc000;
+    nes->cpu.cycles = 7; // nestest.log, nintendulator
 
-    for (i = 0; i < 9999999; i++) {
-        ppu_update(cpu.cycles);
-        cpu.cycles += run_opcode(&cpu, debug);
-    }
-
-    if (debug) {
-        printf("%02x%02x\n", memory[2], memory[3]);
-        for (i = 0; i < 32; i++) {
-            printf("%02x%s", memory[0x6000 + i], i == 31 ? "\n" : "");
-        }
+    for (;;) {
+        ppu_update(nes);
+        nes->cpu.cycles += run_opcode(nes, debug);
     }
 
     return 0;

@@ -513,7 +513,7 @@ void sei_imp(t_cpu *cpu) { SET_IFLAG; } // 0x78
 void brk_imp(t_cpu *cpu) {
     stack_push16(cpu, cpu->PC + 2);
     stack_push(cpu, cpu->P | 0b00110000);
-    cpu->P |= IFLAG;
+    SET_IFLAG;
     cpu->PC = read16(cpu, 0xfffe);
 } // 0x00
 
@@ -534,6 +534,13 @@ void jsr_abs(t_cpu *cpu) {
     stack_push16(cpu, cpu->PC + 2);
     cpu->PC = newPC;
 } // 0x20
+
+void do_nmi(t_cpu *cpu) {
+    stack_push16(cpu, cpu->PC);
+    stack_push(cpu, cpu->P | 0b00110000);
+    SET_IFLAG;
+    cpu->PC = read16(cpu, 0xfffa);
+}
 
 enum mode {
     absolute,
@@ -764,7 +771,8 @@ static bool is_endless_loop(t_cpu *cpu) {
     return a == 0xf0 && b == 0xfe && (IS_ZFLAG);
 }
 
-int run_opcode(t_cpu *cpu, bool debug) {
+int run_opcode(t_nes *nes, bool debug) {
+    t_cpu *cpu = &(nes->cpu);
     uint16_t opcode, pc;
     int retval;
 
@@ -777,8 +785,8 @@ int run_opcode(t_cpu *cpu, bool debug) {
             "SP:%02X PPU:%3d,%3d VBL:%d CYC:%d\n",
             cpu->PC, ins ? ins->name : "???", read(cpu, cpu->PC),
             read(cpu, cpu->PC + 1), read(cpu, cpu->PC + 2), cpu->A, cpu->X,
-            cpu->Y, cpu->P | 0b00100000, cpu->S, ppu_get_y(), ppu_get_x(),
-            ppu_read(0, 0x2002) == 0 ? 0 : 1, cpu->cycles);
+            cpu->Y, cpu->P | 0b00100000, cpu->S, ppu_get_y(nes), ppu_get_x(nes),
+            (nes->ppu_registers[2] & 128) == 0 ? 0 : 1, cpu->cycles);
     }
 
     if (!ins) {

@@ -1,5 +1,7 @@
+#include "nesmu.h"
 #include <stdbool.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #define PPUCTRL 0x2000
 #define PPUMASK 0x2001
@@ -11,29 +13,33 @@
 #define PPUDATA 0x2007
 #define OAMDMA 0x4014
 
-static uint8_t ppu_registers[8] = {0, 0, 0, 0, 0, 0, 0, 0};
-
-uint8_t ppu_read(void *userdata, uint16_t addr) {
-    (void)userdata;
+uint8_t ppu_read(t_nes *nes, uint16_t addr) {
     switch (addr) {
+    case PPUSTATUS:
+        nes->ppu_registers[addr & 7] &= ~128;
+        nes->ppu_registers[addr & 7] |= (nes->NMI_occurred << 7);
+        nes->NMI_occurred = false;
+        return nes->ppu_registers[addr & 7];
+
     case PPUCTRL:
     case PPUMASK:
-    case PPUSTATUS:
     case OAMADDR:
     case OAMDATA:
     case PPUSCROLL:
     case PPUADDR:
     case PPUDATA:
-        return ppu_registers[addr & 7];
+        return nes->ppu_registers[addr & 7];
     default:
         return 0;
     }
 }
 
-void ppu_write(void *userdata, uint16_t addr, uint8_t val) {
-    (void)userdata;
+void ppu_write(t_nes *nes, uint16_t addr, uint8_t val) {
     switch (addr) {
     case PPUCTRL:
+        nes->ppu_registers[addr & 7] = val;
+        nes->NMI_output = (val & 128) ? true : false;
+        break;
     case PPUMASK:
     case PPUSTATUS:
     case OAMADDR:
@@ -41,43 +47,54 @@ void ppu_write(void *userdata, uint16_t addr, uint8_t val) {
     case PPUSCROLL:
     case PPUADDR:
     case PPUDATA:
-        ppu_registers[addr & 7] = val;
+        nes->ppu_registers[addr & 7] = val;
         break;
     default:
     }
 }
 
-volatile uint32_t old_cpu_cycles, ppu_cycles, parity, frame_number;
+int ppu_get_x(t_nes *nes) { return nes->ppu_cycles % 341; }
+int ppu_get_y(t_nes *nes) { return nes->ppu_cycles / 341; }
 
-int ppu_get_x() { return ppu_cycles % 341; }
-int ppu_get_y() { return ppu_cycles / 341; }
-
-#define IS_VBLANK (ppu_registers[2] & 128)
-#define SET_VBLANK (ppu_registers[2] |= 128)
-#define CLEAR_VBLANK (ppu_registers[2] &= ~128)
+#define IS_VBLANK (nes->ppu_registers[2] & 128)
+#define SET_VBLANK (nes->ppu_registers[2] |= 128)
+#define CLEAR_VBLANK (nes->ppu_registers[2] &= ~128)
 #define UPDATE_VBLANK(val) ((val) ? (SET_VBLANK) : (CLEAR_VBLANK))
 
-int ppu_update(uint32_t cpu_cycles) {
+int ppu_update(t_nes *nes) {
     uint32_t frame_durations[2] = {341 * 262, 341 * 261 + 340};
     uint32_t new_cpu_cycles, new_ppu_cycles, x, y;
 
-    new_cpu_cycles = cpu_cycles - old_cpu_cycles;
+    new_cpu_cycles = nes->cpu.cycles - nes->old_cpu_cycles;
     new_ppu_cycles = 3 * new_cpu_cycles;
-    ppu_cycles += new_ppu_cycles;
-    if (frame_durations[parity] <= ppu_cycles) {
-        ppu_cycles %= frame_durations[parity];
-        parity ^= 1;
-        frame_number += 1;
+    nes->ppu_cycles += new_ppu_cycles;
+    if (frame_durations[nes->parity] <= nes->ppu_cycles) {
+        nes->ppu_cycles %= frame_durations[nes->parity];
+        nes->parity ^= 1;
+        nes->frame_number += 1;
+    }
+    nes->old_cpu_cycles = nes->cpu.cycles;
+
+    y = ppu_get_y(nes);
+    x = ppu_get_x(nes);
+
+    if ((!IS_VBLANK) && (241 == y) && (1 <= x)) {
+        UPDATE_VBLANK(true);
+        nes->NMI_occurred = true;
     }
 
-    y = ppu_get_y();
-    x = ppu_get_x();
-
-    if ((!IS_VBLANK) && (241 == y) && (1 <= x))
-        UPDATE_VBLANK(true);
-    if ((IS_VBLANK) && (261 == y) && (1 <= x))
+    if ((IS_VBLANK) && (261 == y) && (1 <= x)) {
         UPDATE_VBLANK(false);
+        nes->NMI_occurred = false;
+    }
 
-    old_cpu_cycles = cpu_cycles;
+    nes->NMI_line_status_old = nes->NMI_line_status;
+    nes->NMI_line_status = nes->NMI_occurred && nes->NMI_output;
+
+    if (!nes->NMI_line_status_old && nes->NMI_line_status) {
+        // check cpu IFLAG ?
+        do_nmi(&(nes->cpu));
+        nes->cpu.cycles += 7;
+    }
     return 0;
 }
