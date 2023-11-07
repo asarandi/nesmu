@@ -11,11 +11,11 @@
 #include <unistd.h>
 
 uint8_t cpu_read(void *userdata, uint16_t addr) {
-    uint8_t *memory = (uint8_t *)userdata;
+    t_nes *nes = (t_nes *)userdata;
 
     if (addr < 0x2000) {
         // RAM
-        return memory[addr & 0x7ff];
+        return nes->memory[addr & 0x7ff];
     } else if (0x2000 <= addr && addr < 0x4000) {
         // PPU
         //    printf("PPU read, addr: %04x, value: %02x\n",
@@ -23,16 +23,17 @@ uint8_t cpu_read(void *userdata, uint16_t addr) {
         return ppu_read(userdata, 0x2000 + (addr & 7));
     } else if (0x4000 <= addr && addr < 0x4020) {
         // APU
-        printf("APU read, addr: %04x, value: %02x\n", addr, memory[addr]);
-        return memory[addr];
+        // printf("APU read, addr: %04x, value: %02x\n", addr, memory[addr]);
+        return apu_read(userdata, addr);
     }
 
-    return memory[addr];
+    return nes->memory[addr];
 }
 
 void cpu_write(void *userdata, uint16_t addr, uint8_t val) {
-    uint8_t *memory = (uint8_t *)userdata;
+    t_nes *nes = (t_nes *)userdata;
 
+    // blargg instr_test-v5
     if (0x6004 <= addr && addr < 0x6100) {
         if (val)
             putchar(val);
@@ -40,22 +41,21 @@ void cpu_write(void *userdata, uint16_t addr, uint8_t val) {
 
     if (addr < 0x2000) {
         // RAM
-        memory[addr & 0x7ff] = val;
+        nes->memory[addr & 0x7ff] = val;
         return;
     } else if (0x2000 <= addr && addr < 0x4000) {
         // PPU
-        //        printf("PPU write, addr: %04x, value: %02x\n", 0x2000 + (addr
-        //        & 7), val);
+        // printf("PPU write addr:%04x val:%02x\n", 0x2000 + (addr & 7), val);
         ppu_write(userdata, 0x2000 + (addr & 7), val);
         return;
     } else if (0x4000 <= addr && addr < 0x4020) {
-        printf("APU write, addr: %04x, value: %02x\n", addr, val);
         // APU
-        memory[addr] = val;
+        printf("APU write addr:%04x val:%02x\n", addr, val);
+        apu_write(userdata, addr, val);
         return;
     }
 
-    memory[addr] = val;
+    nes->memory[addr] = val;
     return;
 }
 
@@ -129,6 +129,8 @@ int main(int argc, char *argv[]) {
 
     for (;;) {
         ppu_update(nes);
+        apu_update(nes);
+        nes->prev_cpu_cycles = nes->cpu.cycles;
         nes->cpu.cycles += run_opcode(nes, debug);
     }
 

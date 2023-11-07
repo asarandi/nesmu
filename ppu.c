@@ -65,7 +65,7 @@ int ppu_update(t_nes *nes) {
     uint32_t frame_durations[2] = {341 * 262, 341 * 261 + 340};
     uint32_t new_cpu_cycles, new_ppu_cycles, x, y;
 
-    new_cpu_cycles = nes->cpu.cycles - nes->old_cpu_cycles;
+    new_cpu_cycles = nes->cpu.cycles - nes->prev_cpu_cycles;
     new_ppu_cycles = 3 * new_cpu_cycles;
     nes->ppu_cycles += new_ppu_cycles;
     if (frame_durations[nes->parity] <= nes->ppu_cycles) {
@@ -73,7 +73,6 @@ int ppu_update(t_nes *nes) {
         nes->parity ^= 1;
         nes->frame_number += 1;
     }
-    nes->old_cpu_cycles = nes->cpu.cycles;
 
     y = ppu_get_y(nes);
     x = ppu_get_x(nes);

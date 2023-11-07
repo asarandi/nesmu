@@ -50,12 +50,31 @@
 
 // assuming PC is at beginning of current instruction
 
+bool cpu_is_iflag(t_nes *nes) {
+    t_cpu *cpu = &(nes->cpu);
+    return IS_IFLAG;
+}
+
+static inline uint8_t read(t_cpu *cpu, uint16_t addr) {
+    uint8_t val = cpu->read(cpu->userdata, addr);
+    cpu->last_read = val;
+    return val;
+}
+
+static inline uint16_t read16(t_cpu *cpu, uint16_t addr) {
+    return read(cpu, addr) + 256 * read(cpu, addr + 1);
+}
+
+static inline void write(t_cpu *cpu, uint16_t addr, uint8_t val) {
+    return cpu->write(cpu->userdata, addr, val);
+}
+
 static inline uint8_t read_immediate_lo(t_cpu *cpu) {
-    return cpu->read(cpu->userdata, cpu->PC + 1);
+    return read(cpu, cpu->PC + 1);
 }
 
 static inline uint8_t read_immediate_hi(t_cpu *cpu) {
-    return cpu->read(cpu->userdata, cpu->PC + 2);
+    return read(cpu, cpu->PC + 2);
 }
 
 static inline uint16_t address_absolute(t_cpu *cpu) {
@@ -82,6 +101,7 @@ static inline uint16_t indirection(t_cpu *cpu, uint16_t addr_lo,
                                    uint16_t addr_hi) {
     uint8_t lo = cpu->read(cpu->userdata, addr_lo);
     uint8_t hi = cpu->read(cpu->userdata, addr_hi);
+    cpu->last_read = hi;
     return (hi << 8) | lo;
 }
 
@@ -113,19 +133,6 @@ static inline uint16_t address_relative(t_cpu *cpu) {
     cpu->extra_cycles = ((a >> 8) != (b >> 8)) ? 3 : 1;
     return b;
 } // _rel
-
-static uint8_t read(t_cpu *cpu, uint16_t addr) {
-    return cpu->read(cpu->userdata, addr);
-}
-
-static uint16_t read16(t_cpu *cpu, uint16_t addr) {
-    return cpu->read(cpu->userdata, addr) +
-           256 * cpu->read(cpu->userdata, addr + 1);
-}
-
-static void write(t_cpu *cpu, uint16_t addr, uint8_t val) {
-    return cpu->write(cpu->userdata, addr, val);
-}
 
 static void stack_push(t_cpu *cpu, uint8_t val) {
     cpu->u16 = cpu->S + 0x100;
@@ -765,28 +772,38 @@ t_ins *get_instruction(uint8_t opcode) {
     return NULL;
 }
 
-static bool is_endless_loop(t_cpu *cpu) {
-    uint8_t a = read(cpu, cpu->PC);
-    uint8_t b = read(cpu, cpu->PC + 1);
+static bool is_endless_loop(t_nes *nes) {
+    t_cpu *cpu = &(nes->cpu);
+    uint8_t a = nes->memory[cpu->PC];
+    uint8_t b = nes->memory[cpu->PC + 1];
     return a == 0xf0 && b == 0xfe && (IS_ZFLAG);
 }
 
+/* clang-format off */
 int run_opcode(t_nes *nes, bool debug) {
     t_cpu *cpu = &(nes->cpu);
     uint16_t opcode, pc;
     int retval;
 
     opcode = cpu->read(cpu->userdata, cpu->PC);
+    cpu->last_read = opcode;
     t_ins *ins = get_instruction(opcode);
 
     if (debug) {
-        printf(
-            "PC: %04x Ins: %s Bytes: %02x%02x%02x A:%02X X:%02X Y:%02X P:%02X "
-            "SP:%02X PPU:%3d,%3d VBL:%d CYC:%d\n",
-            cpu->PC, ins ? ins->name : "???", read(cpu, cpu->PC),
-            read(cpu, cpu->PC + 1), read(cpu, cpu->PC + 2), cpu->A, cpu->X,
-            cpu->Y, cpu->P | 0b00100000, cpu->S, ppu_get_y(nes), ppu_get_x(nes),
-            (nes->ppu_registers[2] & 128) == 0 ? 0 : 1, cpu->cycles);
+        printf("PC: %04x Ins: %s Bytes: %02x%02x%02x VBL:%d A:%02X X:%02X Y:%02X P:%02X SP:%02X PPU:%3d,%3d CYC:%d\n",
+            cpu->PC, ins ? ins->name : "???",
+            nes->memory[cpu->PC],
+            nes->memory[cpu->PC + 1],
+            nes->memory[cpu->PC + 2],
+            (nes->ppu_registers[2] & 128) == 0 ? 0 : 1,
+            cpu->A,
+            cpu->X,
+            cpu->Y,
+            cpu->P | 0b00100000,
+            cpu->S,
+            ppu_get_y(nes),
+            ppu_get_x(nes),
+            cpu->cycles);
     }
 
     if (!ins) {
@@ -794,7 +811,7 @@ int run_opcode(t_nes *nes, bool debug) {
         exit(1);
     }
 
-    if (is_endless_loop(cpu)) {
+    if (is_endless_loop(nes)) {
         printf("endless loop detected\n");
         exit(1);
     }
