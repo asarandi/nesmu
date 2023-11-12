@@ -60,7 +60,7 @@ void cpu_write(void *userdata, uint16_t addr, uint8_t val) {
 }
 
 int main(int argc, char *argv[]) {
-    int fd, ret, opt, i, debug = 0;
+    int fd, ret, opt, i, done = 0, debug = 0;
     struct stat st;
     size_t size;
     void *data;
@@ -81,6 +81,10 @@ int main(int argc, char *argv[]) {
 
     if (optind >= argc) {
         fprintf(stderr, "expected argument after options\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if (shell_open(nes)) {
         exit(EXIT_FAILURE);
     }
 
@@ -127,12 +131,16 @@ int main(int argc, char *argv[]) {
     // nes->cpu.PC = 0xc000;
     nes->cpu.cycles = 7; // nestest.log, nintendulator
 
-    for (;;) {
-        ppu_update(nes);
+    for (; !done;) {
+        if (ppu_update(nes)) {
+            poll_events(nes, &done);
+        }
         apu_update(nes);
         nes->prev_cpu_cycles = nes->cpu.cycles;
         nes->cpu.cycles += run_opcode(nes, debug);
     }
+
+    shell_close(nes);
 
     return 0;
 }

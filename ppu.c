@@ -64,6 +64,7 @@ int ppu_get_y(t_nes *nes) { return nes->ppu_cycles / 341; }
 int ppu_update(t_nes *nes) {
     uint32_t frame_durations[2] = {341 * 262, 341 * 261 + 340};
     uint32_t new_cpu_cycles, new_ppu_cycles, x, y;
+    int retval = 0;
 
     new_cpu_cycles = nes->cpu.cycles - nes->prev_cpu_cycles;
     new_ppu_cycles = 3 * new_cpu_cycles;
@@ -80,6 +81,7 @@ int ppu_update(t_nes *nes) {
     if ((!IS_VBLANK) && (241 == y) && (1 <= x)) {
         UPDATE_VBLANK(true);
         nes->NMI_occurred = true;
+        retval = 1;
     }
 
     if ((IS_VBLANK) && (261 == y) && (1 <= x)) {
@@ -95,5 +97,6 @@ int ppu_update(t_nes *nes) {
         do_nmi(&(nes->cpu));
         nes->cpu.cycles += 7;
     }
-    return 0;
+
+    return retval;
 }

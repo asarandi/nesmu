@@ -8,3 +8,4 @@
 !cpu.c
 !ppu.c
 !apu.c
+!shell.c
