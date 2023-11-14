@@ -50,7 +50,7 @@ void cpu_write(void *userdata, uint16_t addr, uint8_t val) {
         return;
     } else if (0x4000 <= addr && addr < 0x4020) {
         // APU
-        printf("APU write addr:%04x val:%02x\n", addr, val);
+        // printf("APU write addr:%04x val:%02x\n", addr, val);
         apu_write(userdata, addr, val);
         return;
     }

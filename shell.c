@@ -41,7 +41,7 @@ static int audio_open(t_nes *nes) {
 
     (void)SDL_memset(&spec, 0, sizeof(SDL_AudioSpec));
 
-    spec.freq = 44100;
+    spec.freq = 48000;
     spec.format = AUDIO_S16SYS;
     spec.channels = 1;
     spec.samples = 512;

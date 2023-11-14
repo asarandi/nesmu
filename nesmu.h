@@ -45,9 +45,21 @@ typedef struct cpu {
     volatile uint8_t extra_cycles;
 } t_cpu;
 
+typedef struct pulse {
+    uint16_t timer;
+    uint8_t seq;
+    uint8_t lenctr;
+    uint8_t env_start;
+    uint8_t env_decay;
+    uint8_t env_divider;
+} t_pulse;
+
 typedef struct apu {
+    volatile uint32_t timer_cycles;
     volatile uint32_t cpu_cycles, step_index, prev_step_index;
     volatile uint64_t audio_output_cycles;
+    t_pulse pulse1;
+    t_pulse pulse2;
 } t_apu;
 
 typedef struct shell {

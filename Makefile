@@ -6,7 +6,10 @@ LDFLAGS += -g $(shell sdl2-config --libs)
 SRC = main.c cpu.c ppu.c apu.c shell.c
 
 nesmu: $(SRC:.c=.o)
-	$(CC) -o $@ $(LDFLAGS) $^
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+fclean:
+	rm -f nesmu *.o
 
 calc: calc.c
 	gcc -o calc -Wall -Werror -Wextra -I sha1/ calc.c sha1/sha1.c
