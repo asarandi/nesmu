@@ -117,6 +117,9 @@ int main(int argc, char *argv[]) {
     } else if (size == 16 + 16384 + 8192) {
         memcpy(nes->memory + 0x8000, data + 16, 0x4000);
         memcpy(nes->memory + 0xc000, data + 16, 0x4000);
+    } else if (size == 16 + 8192 + 8192) {
+        memcpy(nes->memory + 0x8000, data + 16, 0x4000);
+        memcpy(nes->memory + 0xc000, data + 16, 0x4000);
     } else {
         assert(false);
     }

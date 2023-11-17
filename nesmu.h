@@ -46,12 +46,18 @@ typedef struct cpu {
 } t_cpu;
 
 typedef struct pulse {
+    bool lc_enabled;
+    bool env_loop; // length counter halt
+    bool const_vol;
     uint16_t timer;
+    uint16_t timer_period;
+    uint8_t duty;
     uint8_t seq;
     uint8_t lenctr;
     uint8_t env_start;
     uint8_t env_decay;
     uint8_t env_divider;
+    uint8_t env_period;
 } t_pulse;
 
 typedef struct apu {
@@ -64,7 +70,7 @@ typedef struct apu {
 
 typedef struct shell {
     int audio_device;
-    int16_t buf[512 * 2];
+    int16_t buf[512 * 4];
     volatile int buf_read_index, buf_write_index, num_available;
 } t_shell;
 

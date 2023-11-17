@@ -5,25 +5,25 @@ static int16_t audio_dequeue_sample(t_nes *nes) {
     int16_t sample;
 
     if (nes->shell.num_available <= 0) {
-        //        SDL_Log("audio underrun");
+        SDL_Log("audio underrun");
         return 0;
     }
 
     sample = nes->shell.buf[nes->shell.buf_read_index];
     nes->shell.num_available -= 1;
     nes->shell.buf_read_index += 1;
-    nes->shell.buf_read_index %= 1024;
+    nes->shell.buf_read_index %= 2048;
     return sample;
 }
 
 void audio_enqueue_sample(t_nes *nes, int16_t sample) {
-    while (nes->shell.num_available == 1024) {
+    while (nes->shell.num_available > 1536) {
         SDL_Delay(1);
     }
     nes->shell.buf[nes->shell.buf_write_index] = sample;
     nes->shell.num_available += 1;
     nes->shell.buf_write_index += 1;
-    nes->shell.buf_write_index %= 1024;
+    nes->shell.buf_write_index %= 2048;
     return;
 }
 
@@ -42,7 +42,7 @@ static int audio_open(t_nes *nes) {
     (void)SDL_memset(&spec, 0, sizeof(SDL_AudioSpec));
 
     spec.freq = 48000;
-    spec.format = AUDIO_S16SYS;
+    spec.format = AUDIO_S16;
     spec.channels = 1;
     spec.samples = 512;
     spec.size = 512 * 2 * 1;
