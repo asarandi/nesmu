@@ -53,12 +53,22 @@ typedef struct pulse {
     uint16_t timer_period;
     uint8_t duty;
     uint8_t seq;
-    uint8_t lenctr;
+    uint8_t length_counter;
     uint8_t env_start;
     uint8_t env_decay;
     uint8_t env_divider;
     uint8_t env_period;
 } t_pulse;
+
+typedef struct triangle {
+    bool lc_enabled;
+    bool control_flag;
+    bool reload_flag;
+    uint8_t linear_counter;
+    uint8_t length_counter;
+    uint16_t timer;
+    uint8_t seq;
+} t_triangle;
 
 typedef struct apu {
     volatile uint32_t timer_cycles;
@@ -66,6 +76,7 @@ typedef struct apu {
     volatile uint64_t audio_output_cycles;
     t_pulse pulse1;
     t_pulse pulse2;
+    t_triangle triangle;
 } t_apu;
 
 typedef struct shell {

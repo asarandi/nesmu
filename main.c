@@ -133,6 +133,8 @@ int main(int argc, char *argv[]) {
     nes->cpu.PC = nes->memory[0xfffc] + 256 * nes->memory[0xfffd];
     // nes->cpu.PC = 0xc000;
     nes->cpu.cycles = 7; // nestest.log, nintendulator
+    /* start triangle at phase 16 (volume 0) to avoid initial pop */
+    nes->apu.triangle.seq = 16;
 
     for (; !done;) {
         if (ppu_update(nes)) {
