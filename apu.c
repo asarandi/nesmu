@@ -253,17 +253,29 @@ static int apu_timers_tick(t_nes *nes) {
 }
 
 int16_t apu_collect_sample(t_nes *nes) {
-    // mixer
+    // https://www.nesdev.org/wiki/APU_Mixer
 
-    int16_t b, s1, s2, s3;
+    int16_t s1, s2, s3, retval;
+    double pulse_out, tnd_out, output;
 
     s1 = s2 = s3 = 0;
     s1 = apu_pulse_sample(nes, true);
     s2 = apu_pulse_sample(nes, false);
     s3 = apu_triangle_sample(nes);
 
-    int32_t sum = s1 + s2 + s3;
-    return sum * (INT16_MAX / 64);
+    pulse_out = 0.0;
+    if (s1 || s2) {
+        pulse_out = 95.88 / (8128.0 / (double)(s1 + s2) + 100.0);
+    }
+    tnd_out = 0.0;
+    if (s3) {
+        tnd_out = 159.79 / (1.0 / ((double)s3 / 8227.0) + 100.0);
+    }
+    output = pulse_out + tnd_out;
+    assert((0.0 <= output) && (output <= 1.0));
+
+    retval = (int16_t)((double)INT16_MAX * output);
+    return retval;
 }
 
 #define FRAME_COUNTER_MODE ((nes->memory[JOY2] & 128) ? 1 : 0)
