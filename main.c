@@ -137,6 +137,7 @@ int main(int argc, char *argv[]) {
 
     /* start triangle at phase 16 (volume 0) to avoid initial pop */
     nes->apu.ch[2].timer.phase = 16;
+    nes->apu.ch[3].lfsr.shift_register = 1;
 
     for (; !done;) {
         if (ppu_update(nes)) {

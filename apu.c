@@ -32,12 +32,17 @@ void apu_write(t_nes *nes, uint16_t addr, uint8_t val) {
     const uint8_t length_table[] = {
         10, 254, 20, 2,  40, 4,  80, 6,  160, 8,  60, 10, 14, 12, 26, 14,
         12, 16,  24, 18, 48, 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30};
+    const uint16_t noise_periods[] = {
+        4,   8,   16,  32,  64,  96,   128,  160,
+        202, 254, 380, 508, 762, 1016, 2034, 4068,
+    };
 
     t_channel *ch = NULL;
 
     ch = ((SQ1_VOL <= addr) && (addr < SQ2_VOL)) ? CH0 : ch;
     ch = ((SQ2_VOL <= addr) && (addr < TRI_LINEAR)) ? CH1 : ch;
     ch = ((TRI_LINEAR <= addr) && (addr < NOISE_VOL)) ? CH2 : ch;
+    ch = ((NOISE_VOL <= addr) && (addr < DMC_FREQ)) ? CH3 : ch;
 
     nes->memory[addr] = val;
 
@@ -45,6 +50,7 @@ void apu_write(t_nes *nes, uint16_t addr, uint8_t val) {
     case SQ1_VOL:
     case SQ2_VOL:
     case TRI_LINEAR:
+    case NOISE_VOL:
         // pulse
         ch->env.loop_flag = (val & 32) != 0;
         ch->env.constant_volume = (val & 16) != 0;
@@ -61,11 +67,20 @@ void apu_write(t_nes *nes, uint16_t addr, uint8_t val) {
         ch->timer.period = (ch->timer.period & 0xff00) | val;
         break;
 
+    case NOISE_LO:
+        ch->timer.period = noise_periods[val & 15];
+        ch->lfsr.mode_flag = (val & 128) != 0;
+        break;
+
     case SQ1_HI:
     case SQ2_HI:
     case TRI_HI:
+    case NOISE_HI:
         ch->env.start_flag = true;
-        ch->timer.period = ((val & 7) << 8) | (ch->timer.period & 255);
+
+        if (addr != NOISE_HI) {
+            ch->timer.period = ((val & 7) << 8) | (ch->timer.period & 255);
+        }
 
         if (addr == SQ1_HI || addr == SQ2_HI) {
             ch->timer.phase = 0;
@@ -138,6 +153,21 @@ static void timer_tick(t_channel *ch, bool phase_advance, uint8_t phase_mask) {
     }
 }
 
+static void noise_timer_tick(t_channel *ch) {
+    if (ch->timer.divider) {
+        ch->timer.divider -= 1;
+    } else {
+        ch->timer.divider = ch->timer.period;
+        uint16_t b, r = ch->lfsr.shift_register;
+        if (ch->lfsr.mode_flag) {
+            b = r ^ (r >> 6);
+        } else {
+            b = r ^ (r >> 1);
+        }
+        ch->lfsr.shift_register = (r >> 1) | ((b & 1) << 14);
+    }
+}
+
 static int pulse_sample(t_channel *ch) {
     uint16_t timer = ch->timer.period;
     int volume = ch->env.constant_volume ? ch->env.period : ch->env.decay;
@@ -172,6 +202,12 @@ static int triangle_sample(t_channel *ch) {
     return tab[ch->timer.phase];
 }
 
+static int noise_sample(t_channel *ch) {
+    if ((!ch->lc.counter) || (ch->lfsr.shift_register & 1))
+        return 0;
+    return ch->env.constant_volume ? ch->env.period : ch->env.decay;
+}
+
 // frame sequencer
 
 static int quarter_frame_update(t_nes *nes) {
@@ -179,6 +215,7 @@ static int quarter_frame_update(t_nes *nes) {
     envelope_tick(CH0);
     envelope_tick(CH1);
     linear_counter_tick(CH2);
+    envelope_tick(CH3);
     return 0;
 }
 
@@ -187,6 +224,7 @@ static int half_frame_update(t_nes *nes) {
     length_counter_tick(CH0, nes->apu.ch[0].env.loop_flag);
     length_counter_tick(CH1, nes->apu.ch[1].env.loop_flag);
     length_counter_tick(CH2, nes->apu.ch[2].lin.control_flag);
+    length_counter_tick(CH3, nes->apu.ch[3].env.loop_flag);
     return 0;
 }
 
@@ -201,6 +239,7 @@ static int timers_tick(t_nes *nes) {
         nes->apu.timer_cycles -= 2;
         timer_tick(CH0, true, 7);
         timer_tick(CH1, true, 7);
+        noise_timer_tick(CH3);
     }
 
     timer_tick(CH2, (CH2)->lin.counter > 0 && (CH2)->lc.counter > 0, 31);
@@ -212,22 +251,26 @@ static int timers_tick(t_nes *nes) {
 static int16_t mix_samples(t_nes *nes) {
     // https://www.nesdev.org/wiki/APU_Mixer
 
-    int16_t s1, s2, s3, retval;
+    int16_t s0, s1, s2, s3, s4, retval;
     double pulse_out, tnd_out, output;
 
-    s1 = s2 = s3 = 0;
-    s1 = pulse_sample(CH0);
-    s2 = pulse_sample(CH1);
-    s3 = triangle_sample(CH2);
+    s0 = s1 = s2 = s3 = s4 = 0;
+    s0 = pulse_sample(CH0);
+    s1 = pulse_sample(CH1);
+    s2 = triangle_sample(CH2);
+    s3 = noise_sample(CH3);
+    // s0 = s1 = s2 = s4 = 0;
 
     pulse_out = 0.0;
-    if (s1 || s2) {
-        pulse_out = 95.88 / (8128.0 / (double)(s1 + s2) + 100.0);
+    if (s0 || s1) {
+        pulse_out = 95.88 / (8128.0 / (double)(s0 + s1) + 100.0);
     }
 
     tnd_out = 0.0;
-    if (s3) {
-        tnd_out = 159.79 / (1.0 / ((double)s3 / 8227.0) + 100.0);
+    if (s2 || s3 || s4) {
+        tnd_out = 159.79 / (1.0 / ((double)s2 / 8227.0 + (double)s3 / 12241.0 +
+                                   (double)s4 / 22638.0) +
+                            100.0);
     }
 
     output = pulse_out + tnd_out;

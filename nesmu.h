@@ -72,11 +72,17 @@ typedef struct linear_counter {
     uint8_t period;
 } t_linear_counter;
 
+typedef struct lfsr {
+    bool mode_flag;
+    uint16_t shift_register;
+} t_lfsr;
+
 typedef struct channel {
     t_envelope env;
     t_timer timer;
     t_length_counter lc;
     t_linear_counter lin;
+    t_lfsr lfsr;
 } t_channel;
 
 typedef struct apu {
