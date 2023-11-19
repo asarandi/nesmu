@@ -1,18 +1,19 @@
 #include "nesmu.h"
-#include <assert.h>
 #include <stdio.h>
 
-uint8_t apu_read(t_nes *nes, uint16_t addr) {
-    t_pulse *ch1 = &(nes->apu.pulse1);
-    t_pulse *ch2 = &(nes->apu.pulse2);
-    t_triangle *ch3 = &(nes->apu.triangle);
+#define CH0 &(nes->apu.ch[0])
+#define CH1 &(nes->apu.ch[1])
+#define CH2 &(nes->apu.ch[2])
+#define CH3 &(nes->apu.ch[3])
+#define CH4 &(nes->apu.ch[4])
 
+uint8_t apu_read(t_nes *nes, uint16_t addr) {
     switch (addr) {
     case SND_CHN:
         uint8_t val = 0;
-        val |= (ch1->length_counter != 0) << 0;
-        val |= (ch2->length_counter != 0) << 1;
-        val |= (ch3->length_counter != 0) << 2;
+        for (int i = 0; i < 5; i++) {
+            val |= (nes->apu.ch[i].lc.counter > 0) << i;
+        }
         return val;
     case JOY1:
         return 0;
@@ -24,11 +25,6 @@ uint8_t apu_read(t_nes *nes, uint16_t addr) {
     }
 }
 
-static uint16_t apu_pulse_timer_value(t_nes *nes, bool one) {
-    return one ? (((nes->memory[SQ1_HI] & 7) << 8) | nes->memory[SQ1_LO])
-               : (((nes->memory[SQ2_HI] & 7) << 8) | nes->memory[SQ2_LO]);
-}
-
 static int quarter_frame_update(t_nes *nes);
 static int half_frame_update(t_nes *nes);
 
@@ -37,45 +33,48 @@ void apu_write(t_nes *nes, uint16_t addr, uint8_t val) {
         10, 254, 20, 2,  40, 4,  80, 6,  160, 8,  60, 10, 14, 12, 26, 14,
         12, 16,  24, 18, 48, 20, 96, 22, 192, 24, 72, 26, 16, 28, 32, 30};
 
-    t_pulse *ch = NULL;
-    t_pulse *ch1 = &(nes->apu.pulse1);
-    t_pulse *ch2 = &(nes->apu.pulse2);
-    t_triangle *ch3 = &(nes->apu.triangle);
+    t_channel *ch = NULL;
 
-    ch = ((SQ1_VOL <= addr) && (addr < SQ2_VOL)) ? ch1 : ch;
-    ch = ((SQ2_VOL <= addr) && (addr < TRI_LINEAR)) ? ch2 : ch;
+    ch = ((SQ1_VOL <= addr) && (addr < SQ2_VOL)) ? CH0 : ch;
+    ch = ((SQ2_VOL <= addr) && (addr < TRI_LINEAR)) ? CH1 : ch;
+    ch = ((TRI_LINEAR <= addr) && (addr < NOISE_VOL)) ? CH2 : ch;
+
+    nes->memory[addr] = val;
 
     switch (addr) {
     case SQ1_VOL:
     case SQ2_VOL:
-        nes->memory[addr] = val;
-        ch->env_loop = (val & 32) != 0;
-        ch->const_vol = (val & 16) != 0;
-        ch->env_period = val & 15;
-        ch->duty = val >> 6;
+    case TRI_LINEAR:
+        // pulse
+        ch->env.loop_flag = (val & 32) != 0;
+        ch->env.constant_volume = (val & 16) != 0;
+        ch->env.period = val & 15;
+        ch->env.duty = val >> 6;
+        // triangle
+        ch->lin.control_flag = (val & 128) != 0;
+        ch->lin.period = val & 127;
+        break;
+
+    case SQ1_LO:
+    case SQ2_LO:
+    case TRI_LO:
+        ch->timer.period = (ch->timer.period & 0xff00) | val;
         break;
 
     case SQ1_HI:
     case SQ2_HI:
-        nes->memory[addr] = val;
-        ch->env_start = 1;
-        ch->seq = 0;
-        if (ch->lc_enabled) {
-            ch->length_counter = length_table[val >> 3];
-        }
-        break;
-
-    case TRI_LINEAR:
-        nes->memory[addr] = val;
-        ch3->control_flag = (val & 128) != 0;
-        break;
-
     case TRI_HI:
-        nes->memory[addr] = val;
-        ch3->reload_flag = true;
-        if (ch3->lc_enabled) {
-            ch3->length_counter = length_table[val >> 3];
+        ch->env.start_flag = true;
+        ch->timer.period = ((val & 7) << 8) | (ch->timer.period & 255);
+
+        if (addr == SQ1_HI || addr == SQ2_HI) {
+            ch->timer.phase = 0;
         }
+
+        if (ch->lc.enabled) {
+            ch->lc.counter = length_table[val >> 3];
+        }
+
         break;
 
     case SND_CHN:
@@ -83,17 +82,16 @@ void apu_write(t_nes *nes, uint16_t addr, uint8_t val) {
         // forced to 0 and cannot be changed until enabled is set again
         // (the length counter's previous value is lost).
 
-        nes->memory[addr] = val;
-        ch1->lc_enabled = (val & 1) != 0;
-        ch1->length_counter = ch1->lc_enabled ? ch1->length_counter : 0;
-        ch2->lc_enabled = (val & 2) != 0;
-        ch2->length_counter = ch2->lc_enabled ? ch2->length_counter : 0;
-        ch3->lc_enabled = (val & 4) != 0;
-        ch3->length_counter = ch3->lc_enabled ? ch3->length_counter : 0;
+        for (int i = 0; i < 5; i++) {
+            bool enabled = (val & (1 << i)) != 0;
+            nes->apu.ch[i].lc.enabled = enabled;
+            if (!enabled) {
+                nes->apu.ch[i].lc.counter = 0;
+            }
+        }
         break;
 
     case JOY2:
-        nes->memory[addr] = val;
         nes->apu.cpu_cycles = 0;
         if (val & 128) {
             quarter_frame_update(nes);
@@ -102,140 +100,97 @@ void apu_write(t_nes *nes, uint16_t addr, uint8_t val) {
         break;
 
     default:
-        nes->memory[addr] = val;
         break;
     }
 }
 
-// pulse
-
-static int apu_pulse_envelope_update(t_nes *nes, bool one) {
-    t_pulse *ch = one ? &(nes->apu.pulse1) : &(nes->apu.pulse2);
-
-    if (!ch->env_start) {
-        if (ch->env_divider) {
-            ch->env_divider -= 1;
-        } else {
-            ch->env_divider = ch->env_period;
-            if (ch->env_decay) {
-                ch->env_decay -= 1;
-            } else if (ch->env_loop) {
-                ch->env_decay = 15;
-            }
+static void envelope_tick(t_channel *ch) {
+    if (ch->env.start_flag) {
+        ch->env.start_flag = false;
+        ch->env.decay = 15;
+        ch->env.divider = ch->env.period;
+    } else if (ch->env.divider) {
+        ch->env.divider -= 1;
+    } else {
+        ch->env.divider = ch->env.period;
+        if (ch->env.decay) {
+            ch->env.decay -= 1;
+        } else if (ch->env.loop_flag) {
+            ch->env.decay = 15;
         }
-    } else {
-        ch->env_start = 0;
-        ch->env_decay = 15;
-        ch->env_divider = ch->env_period;
     }
-
-    return 0;
 }
 
-static int apu_pulse_length_counter_tick(t_nes *nes, bool one) {
-    t_pulse *ch = one ? &(nes->apu.pulse1) : &(nes->apu.pulse2);
-    if (ch->env_loop)
-        return 1;
-    ch->length_counter -= (ch->length_counter > 0) ? 1 : 0;
-    return 0;
-}
-
-static int apu_pulse_timer_tick(t_nes *nes, bool one) {
-    t_pulse *ch = one ? &(nes->apu.pulse1) : &(nes->apu.pulse2);
-
-    if (ch->timer) {
-        ch->timer -= 1;
-    } else {
-        ch->timer = apu_pulse_timer_value(nes, one);
-        ch->seq = (ch->seq + 1) & 7;
+static void length_counter_tick(t_channel *ch, bool disabled_flag) {
+    if ((ch->lc.counter > 0) && (!disabled_flag)) {
+        ch->lc.counter -= 1;
     }
-    return 0;
 }
 
-static int apu_pulse_sample(t_nes *nes, bool one) {
-    t_pulse *ch = one ? &(nes->apu.pulse1) : &(nes->apu.pulse2);
-    uint16_t timer = apu_pulse_timer_value(nes, one);
-    int volume = ch->const_vol ? ch->env_period : ch->env_decay;
+static void timer_tick(t_channel *ch, bool phase_advance, uint8_t phase_mask) {
+    if (ch->timer.divider) {
+        ch->timer.divider -= 1;
+    } else {
+        ch->timer.divider = ch->timer.period;
+        if (phase_advance) {
+            ch->timer.phase = (ch->timer.phase + 1) & phase_mask;
+        }
+    }
+}
+
+static int pulse_sample(t_channel *ch) {
+    uint16_t timer = ch->timer.period;
+    int volume = ch->env.constant_volume ? ch->env.period : ch->env.decay;
     const uint8_t duties_table[] = {0b10000000, 0b11000000, 0b11110000,
                                     0b00111111};
-    if ((timer < 8) || (!ch->length_counter))
+    if ((timer < 8) || (!ch->lc.counter))
         return 0;
 
-    uint8_t pat = duties_table[ch->duty];
-    uint8_t hi = pat & (1 << (7 - ch->seq));
+    uint8_t pat = duties_table[ch->env.duty];
+    uint8_t hi = pat & (1 << (7 - ch->timer.phase));
     return hi ? volume : 0;
 }
 
 // triangle
 
-static int apu_triangle_linear_counter_tick(t_nes *nes) {
-    t_triangle *ch = &(nes->apu.triangle);
-    uint8_t *p = nes->memory;
-
-    if (ch->reload_flag) {
-        ch->linear_counter = p[TRI_LINEAR] & 127;
-    } else if (ch->linear_counter > 0) {
-        ch->linear_counter -= 1;
+static void linear_counter_tick(t_channel *ch) {
+    if (ch->env.start_flag) {
+        ch->lin.counter = ch->lin.period;
+    } else if (ch->lin.counter > 0) {
+        ch->lin.counter -= 1;
     }
-    if (!ch->control_flag) {
-        ch->reload_flag = false;
+    if (!ch->lin.control_flag) {
+        ch->env.start_flag = false;
     }
-    return 0;
 }
 
-static int apu_triangle_length_counter_tick(t_nes *nes) {
-    t_triangle *ch = &(nes->apu.triangle);
-    if (ch->control_flag)
-        return 1;
-    ch->length_counter -= (ch->length_counter > 0) ? 1 : 0;
-    return 0;
-}
-
-static int apu_triangle_timer_tick(t_nes *nes) {
-    t_triangle *ch = &(nes->apu.triangle);
-    uint8_t *p = nes->memory;
-
-    if (ch->timer) {
-        ch->timer -= 1;
-    } else {
-        ch->timer = ((p[TRI_HI] & 7) << 8) | p[TRI_LO];
-        // The sequencer is clocked by the timer as long as both
-        // the linear counter and the length counter are nonzero.
-        if ((ch->linear_counter > 0) && (ch->length_counter > 0)) {
-            ch->seq = (ch->seq + 1) & 31;
-        }
-    }
-    return 0;
-}
-
-static int apu_triangle_sample(t_nes *nes) {
-    t_triangle *ch = &(nes->apu.triangle);
+static int triangle_sample(t_channel *ch) {
     uint8_t tab[] = {
         15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5,  4,  3,  2,  1,  0,
         0,  1,  2,  3,  4,  5,  6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
     };
-    return tab[ch->seq];
+    return tab[ch->timer.phase];
 }
 
 // frame sequencer
 
 static int quarter_frame_update(t_nes *nes) {
     // envelope and linear counter
-    apu_pulse_envelope_update(nes, true);
-    apu_pulse_envelope_update(nes, false);
-    apu_triangle_linear_counter_tick(nes);
+    envelope_tick(CH0);
+    envelope_tick(CH1);
+    linear_counter_tick(CH2);
     return 0;
 }
 
 static int half_frame_update(t_nes *nes) {
     // sweep and length counter
-    apu_pulse_length_counter_tick(nes, true);
-    apu_pulse_length_counter_tick(nes, false);
-    apu_triangle_length_counter_tick(nes);
+    length_counter_tick(CH0, nes->apu.ch[0].env.loop_flag);
+    length_counter_tick(CH1, nes->apu.ch[1].env.loop_flag);
+    length_counter_tick(CH2, nes->apu.ch[2].lin.control_flag);
     return 0;
 }
 
-static int apu_timers_tick(t_nes *nes) {
+static int timers_tick(t_nes *nes) {
     // https://www.nesdev.org/wiki/APU#Glossary
     // The triangle channel's timer is clocked on every CPU cycle,
     // but the pulse, noise, and DMC timers are clocked only on
@@ -244,35 +199,38 @@ static int apu_timers_tick(t_nes *nes) {
     nes->apu.timer_cycles++;
     if (nes->apu.timer_cycles > 1) {
         nes->apu.timer_cycles -= 2;
-        apu_pulse_timer_tick(nes, true);
-        apu_pulse_timer_tick(nes, false);
+        timer_tick(CH0, true, 7);
+        timer_tick(CH1, true, 7);
     }
-    apu_triangle_timer_tick(nes);
+
+    timer_tick(CH2, (CH2)->lin.counter > 0 && (CH2)->lc.counter > 0, 31);
+
     // tick noise
     return 0;
 }
 
-int16_t apu_collect_sample(t_nes *nes) {
+static int16_t mix_samples(t_nes *nes) {
     // https://www.nesdev.org/wiki/APU_Mixer
 
     int16_t s1, s2, s3, retval;
     double pulse_out, tnd_out, output;
 
     s1 = s2 = s3 = 0;
-    s1 = apu_pulse_sample(nes, true);
-    s2 = apu_pulse_sample(nes, false);
-    s3 = apu_triangle_sample(nes);
+    s1 = pulse_sample(CH0);
+    s2 = pulse_sample(CH1);
+    s3 = triangle_sample(CH2);
 
     pulse_out = 0.0;
     if (s1 || s2) {
         pulse_out = 95.88 / (8128.0 / (double)(s1 + s2) + 100.0);
     }
+
     tnd_out = 0.0;
     if (s3) {
         tnd_out = 159.79 / (1.0 / ((double)s3 / 8227.0) + 100.0);
     }
+
     output = pulse_out + tnd_out;
-    assert((0.0 <= output) && (output <= 1.0));
 
     retval = (int16_t)((double)INT16_MAX * output);
     return retval;
@@ -303,22 +261,23 @@ int apu_tick(t_nes *nes) {
     } else if (j == sequencer_steps[i][2]) {
         quarter_frame_update(nes);
     } else if (j >= sequencer_steps[i][3]) {
-        nes->apu.cpu_cycles -= sequencer_steps[i][3];
         quarter_frame_update(nes);
         half_frame_update(nes);
+
+        nes->apu.cpu_cycles -= sequencer_steps[i][3];
         if ((i == 0) && (!IS_INTERRUPT_INHIBIT) && (!cpu_is_iflag(nes))) {
             puts("APU MODE 0 IRQ");
         }
     } else {
     }
 
-    apu_timers_tick(nes);
+    timers_tick(nes);
 
     /* (1_789_773 * 16000) / 48000 == 596591.0 */
     nes->apu.audio_output_cycles += 16000;
     while (nes->apu.audio_output_cycles >= 596591) {
         nes->apu.audio_output_cycles -= 596591;
-        int16_t sample = apu_collect_sample(nes);
+        int16_t sample = mix_samples(nes);
         audio_enqueue_sample(nes, sample);
     }
     return 0;

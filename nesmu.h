@@ -45,38 +45,45 @@ typedef struct cpu {
     volatile uint8_t extra_cycles;
 } t_cpu;
 
-typedef struct pulse {
-    bool lc_enabled;
-    bool env_loop; // length counter halt
-    bool const_vol;
-    uint16_t timer;
-    uint16_t timer_period;
-    uint8_t duty;
-    uint8_t seq;
-    uint8_t length_counter;
-    uint8_t env_start;
-    uint8_t env_decay;
-    uint8_t env_divider;
-    uint8_t env_period;
-} t_pulse;
+typedef struct envelope {
+    bool start_flag;
+    bool loop_flag;
+    bool constant_volume;
+    uint8_t decay;
+    uint8_t divider;
+    uint8_t period;
+    uint8_t duty; // pulse1, pulse2 but not noise
+} t_envelope;
 
-typedef struct triangle {
-    bool lc_enabled;
+typedef struct timer {
+    uint16_t divider;
+    uint16_t period;
+    uint8_t phase;
+} t_timer;
+
+typedef struct length_counter {
+    bool enabled;
+    uint8_t counter;
+} t_length_counter;
+
+typedef struct linear_counter {
     bool control_flag;
-    bool reload_flag;
-    uint8_t linear_counter;
-    uint8_t length_counter;
-    uint16_t timer;
-    uint8_t seq;
-} t_triangle;
+    uint8_t counter;
+    uint8_t period;
+} t_linear_counter;
+
+typedef struct channel {
+    t_envelope env;
+    t_timer timer;
+    t_length_counter lc;
+    t_linear_counter lin;
+} t_channel;
 
 typedef struct apu {
     volatile uint32_t timer_cycles;
     volatile uint32_t cpu_cycles, step_index, prev_step_index;
     volatile uint64_t audio_output_cycles;
-    t_pulse pulse1;
-    t_pulse pulse2;
-    t_triangle triangle;
+    t_channel ch[5];
 } t_apu;
 
 typedef struct shell {
