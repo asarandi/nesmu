@@ -55,6 +55,16 @@ typedef struct envelope {
     uint8_t duty; // pulse1, pulse2 but not noise
 } t_envelope;
 
+typedef struct sweep {
+    bool enabled;
+    bool reload_flag;
+    bool negate_flag;
+    bool muted;
+    uint8_t divider;
+    uint8_t period;
+    uint8_t shift;
+} t_sweep;
+
 typedef struct timer {
     uint16_t divider;
     uint16_t period;
@@ -79,6 +89,7 @@ typedef struct lfsr {
 
 typedef struct channel {
     t_envelope env;
+    t_sweep sweep;
     t_timer timer;
     t_length_counter lc;
     t_linear_counter lin;

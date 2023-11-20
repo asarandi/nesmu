@@ -25,8 +25,8 @@ uint8_t apu_read(t_nes *nes, uint16_t addr) {
     }
 }
 
-static int quarter_frame_update(t_nes *nes);
-static int half_frame_update(t_nes *nes);
+static void quarter_frame_update(t_nes *nes);
+static void half_frame_update(t_nes *nes);
 
 void apu_write(t_nes *nes, uint16_t addr, uint8_t val) {
     const uint8_t length_table[] = {
@@ -59,6 +59,15 @@ void apu_write(t_nes *nes, uint16_t addr, uint8_t val) {
         // triangle
         ch->lin.control_flag = (val & 128) != 0;
         ch->lin.period = val & 127;
+        break;
+
+    case SQ1_SWEEP:
+    case SQ2_SWEEP:
+        ch->sweep.reload_flag = true;
+        ch->sweep.enabled = (val & 128) != 0;
+        ch->sweep.negate_flag = (val & 8) != 0;
+        ch->sweep.period = ((val >> 4) & 7) + 1;
+        ch->sweep.shift = val & 7;
         break;
 
     case SQ1_LO:
@@ -136,6 +145,31 @@ static void envelope_tick(t_channel *ch) {
     }
 }
 
+// If the shift count is zero, the pulse channel's period is
+// never updated but muting logic still applies.
+static void sweep_tick(t_channel *ch, bool pulse_one) {
+    uint16_t target, cond;
+
+    target = ch->timer.period >> ch->sweep.shift;
+    if (ch->sweep.negate_flag) {
+        target = (pulse_one) ? ~target : -target;
+    }
+    target += ch->timer.period;
+
+    ch->sweep.muted = (ch->timer.period < 8) || (target > 2047);
+
+    cond = (ch->sweep.enabled) && (!ch->sweep.muted);
+    cond &= (ch->sweep.shift) && (!ch->sweep.divider);
+    ch->timer.period = cond ? target : ch->timer.period;
+
+    if ((!ch->sweep.divider) || (ch->sweep.reload_flag)) {
+        ch->sweep.divider = ch->sweep.period;
+        ch->sweep.reload_flag = false;
+    } else if (ch->sweep.divider) {
+        ch->sweep.divider -= 1;
+    }
+}
+
 static void length_counter_tick(t_channel *ch, bool disabled_flag) {
     if ((ch->lc.counter > 0) && (!disabled_flag)) {
         ch->lc.counter -= 1;
@@ -154,28 +188,26 @@ static void timer_tick(t_channel *ch, bool phase_advance, uint8_t phase_mask) {
 }
 
 static void noise_timer_tick(t_channel *ch) {
+    uint16_t reg, bit;
+
     if (ch->timer.divider) {
         ch->timer.divider -= 1;
     } else {
         ch->timer.divider = ch->timer.period;
-        uint16_t b, r = ch->lfsr.shift_register;
-        if (ch->lfsr.mode_flag) {
-            b = r ^ (r >> 6);
-        } else {
-            b = r ^ (r >> 1);
-        }
-        ch->lfsr.shift_register = (r >> 1) | ((b & 1) << 14);
+
+        reg = ch->lfsr.shift_register;
+        bit = ch->lfsr.mode_flag ? 6 : 1;
+        bit = reg ^ (reg >> bit);
+        ch->lfsr.shift_register = (reg >> 1) | ((bit & 1) << 14);
     }
 }
 
-static int pulse_sample(t_channel *ch) {
-    uint16_t timer = ch->timer.period;
-    int volume = ch->env.constant_volume ? ch->env.period : ch->env.decay;
-    const uint8_t duties_table[] = {0b10000000, 0b11000000, 0b11110000,
-                                    0b00111111};
-    if ((timer < 8) || (!ch->lc.counter))
+static uint8_t pulse_sample(t_channel *ch) {
+    if ((ch->sweep.muted) || (!ch->lc.counter))
         return 0;
 
+    uint8_t duties_table[] = {0b10000000, 0b11000000, 0b11110000, 0b00111111};
+    uint8_t volume = ch->env.constant_volume ? ch->env.period : ch->env.decay;
     uint8_t pat = duties_table[ch->env.duty];
     uint8_t hi = pat & (1 << (7 - ch->timer.phase));
     return hi ? volume : 0;
@@ -194,7 +226,7 @@ static void linear_counter_tick(t_channel *ch) {
     }
 }
 
-static int triangle_sample(t_channel *ch) {
+static uint8_t triangle_sample(t_channel *ch) {
     uint8_t tab[] = {
         15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5,  4,  3,  2,  1,  0,
         0,  1,  2,  3,  4,  5,  6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
@@ -202,7 +234,7 @@ static int triangle_sample(t_channel *ch) {
     return tab[ch->timer.phase];
 }
 
-static int noise_sample(t_channel *ch) {
+static uint8_t noise_sample(t_channel *ch) {
     if ((!ch->lc.counter) || (ch->lfsr.shift_register & 1))
         return 0;
     return ch->env.constant_volume ? ch->env.period : ch->env.decay;
@@ -210,29 +242,31 @@ static int noise_sample(t_channel *ch) {
 
 // frame sequencer
 
-static int quarter_frame_update(t_nes *nes) {
+static void quarter_frame_update(t_nes *nes) {
     // envelope and linear counter
     envelope_tick(CH0);
     envelope_tick(CH1);
     linear_counter_tick(CH2);
     envelope_tick(CH3);
-    return 0;
 }
 
-static int half_frame_update(t_nes *nes) {
+static void half_frame_update(t_nes *nes) {
     // sweep and length counter
+    sweep_tick(CH0, true);
+    sweep_tick(CH1, false);
     length_counter_tick(CH0, nes->apu.ch[0].env.loop_flag);
     length_counter_tick(CH1, nes->apu.ch[1].env.loop_flag);
     length_counter_tick(CH2, nes->apu.ch[2].lin.control_flag);
     length_counter_tick(CH3, nes->apu.ch[3].env.loop_flag);
-    return 0;
 }
 
-static int timers_tick(t_nes *nes) {
+static void timers_tick(t_nes *nes) {
     // https://www.nesdev.org/wiki/APU#Glossary
     // The triangle channel's timer is clocked on every CPU cycle,
     // but the pulse, noise, and DMC timers are clocked only on
     // every second CPU cycle and thus produce only even periods.
+
+    bool cond;
 
     nes->apu.timer_cycles++;
     if (nes->apu.timer_cycles > 1) {
@@ -242,24 +276,27 @@ static int timers_tick(t_nes *nes) {
         noise_timer_tick(CH3);
     }
 
-    timer_tick(CH2, (CH2)->lin.counter > 0 && (CH2)->lc.counter > 0, 31);
-
-    // tick noise
-    return 0;
+    cond = (CH2)->lin.counter > 0;
+    cond &= (CH2)->lc.counter > 0;
+    cond &= (CH2)->timer.period > 1;
+    // triangle: to avoid "ultrasonic frequencies"
+    // do not change phase when period < 2
+    timer_tick(CH2, cond, 31);
 }
 
 static int16_t mix_samples(t_nes *nes) {
     // https://www.nesdev.org/wiki/APU_Mixer
 
     int16_t s0, s1, s2, s3, s4, retval;
-    double pulse_out, tnd_out, output;
+    double calc, pulse_out, tnd_out, output;
 
     s0 = s1 = s2 = s3 = s4 = 0;
     s0 = pulse_sample(CH0);
     s1 = pulse_sample(CH1);
     s2 = triangle_sample(CH2);
     s3 = noise_sample(CH3);
-    // s0 = s1 = s2 = s4 = 0;
+    s4 = 127;
+    // s0 = s1 = s2 = s3 = s4 = 0;
 
     pulse_out = 0.0;
     if (s0 || s1) {
@@ -268,13 +305,12 @@ static int16_t mix_samples(t_nes *nes) {
 
     tnd_out = 0.0;
     if (s2 || s3 || s4) {
-        tnd_out = 159.79 / (1.0 / ((double)s2 / 8227.0 + (double)s3 / 12241.0 +
-                                   (double)s4 / 22638.0) +
-                            100.0);
+        calc = s2 / 8227.0 + s3 / 12241.0 + s4 / 22638.0;
+        tnd_out = 159.79 / (1.0 / calc + 100.0);
     }
 
     output = pulse_out + tnd_out;
-
+    output = (output * 2.0) - 1.0;
     retval = (int16_t)((double)INT16_MAX * output);
     return retval;
 }
@@ -282,7 +318,7 @@ static int16_t mix_samples(t_nes *nes) {
 #define FRAME_COUNTER_MODE ((nes->memory[JOY2] & 128) ? 1 : 0)
 #define IS_INTERRUPT_INHIBIT ((nes->memory[JOY2] & 64) ? 1 : 0)
 
-int apu_tick(t_nes *nes) {
+static void apu_tick(t_nes *nes) {
 
     // 2 cpu cycles == 1 apu cycles
     // cpu rate: 1,789,773 Hz per second
@@ -323,7 +359,6 @@ int apu_tick(t_nes *nes) {
         int16_t sample = mix_samples(nes);
         audio_enqueue_sample(nes, sample);
     }
-    return 0;
 }
 
 int apu_update(t_nes *nes) {

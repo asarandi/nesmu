@@ -819,7 +819,7 @@ int run_opcode(t_nes *nes, bool debug) {
     pc = cpu->PC;
     cpu->extra_cycles = 0;
     ins->fn(cpu);
-    if (cpu->PC == pc) {
+    if ((cpu->PC == pc) && (opcode != 0x4c)) {
         cpu->PC += ins->num_bytes;
     }
 
