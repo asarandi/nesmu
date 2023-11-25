@@ -1,6 +1,7 @@
 #ifndef NESMU_H
 #define NESMU_H
 
+#include <SDL.h>
 #include <stdbool.h>
 #include <stdint.h>
 
@@ -104,9 +105,13 @@ typedef struct apu {
 } t_apu;
 
 typedef struct shell {
-    int audio_device;
+    SDL_Window *window;
+    SDL_Renderer *renderer;
+    SDL_Texture *texture;
+    SDL_AudioDeviceID audio_device;
     int16_t buf[512 * 4];
     volatile int buf_read_index, buf_write_index, num_available;
+    uint8_t joy1;
 } t_shell;
 
 typedef struct nes {
@@ -118,6 +123,7 @@ typedef struct nes {
     bool NMI_line_status, NMI_line_status_old;
     uint8_t ppu_registers[8];
     volatile uint32_t prev_cpu_cycles, ppu_cycles, parity, frame_number;
+    uint8_t joy1_read_index;
 } t_nes;
 
 bool cpu_is_iflag(t_nes *);
@@ -139,5 +145,6 @@ int shell_open(t_nes *);
 int shell_close(t_nes *);
 int poll_events(t_nes *, int *);
 void audio_enqueue_sample(t_nes *, int16_t);
+int video_write(t_nes *);
 
 #endif

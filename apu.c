@@ -8,15 +8,19 @@
 #define CH4 &(nes->apu.ch[4])
 
 uint8_t apu_read(t_nes *nes, uint16_t addr) {
+    uint8_t val = 0;
+
     switch (addr) {
     case SND_CHN:
-        uint8_t val = 0;
         for (int i = 0; i < 5; i++) {
             val |= (nes->apu.ch[i].lc.counter > 0) << i;
         }
         return val;
     case JOY1:
-        return 0;
+        val = nes->cpu.last_read & 248;
+        val |= (nes->shell.joy1 >> (7 - nes->joy1_read_index)) & 1;
+        nes->joy1_read_index += 1;
+        return val;
     case JOY2:
         return 0;
 
@@ -113,6 +117,9 @@ void apu_write(t_nes *nes, uint16_t addr, uint8_t val) {
                 nes->apu.ch[i].lc.counter = 0;
             }
         }
+        break;
+    case JOY1:
+        nes->joy1_read_index = 0;
         break;
 
     case JOY2:

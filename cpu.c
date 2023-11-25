@@ -41,8 +41,8 @@
 #define CLEAR_NFLAG (cpu->P &= ~NFLAG)
 
 #define UPDATE_ZFLAG(VALUE) ((VALUE) == 0) ? SET_ZFLAG : CLEAR_ZFLAG
-#define UPDATE_VFLAG(VALUE) ((VALUE)&VFLAG) ? SET_VFLAG : CLEAR_VFLAG
-#define UPDATE_NFLAG(VALUE) ((VALUE)&NFLAG) ? SET_NFLAG : CLEAR_NFLAG
+#define UPDATE_VFLAG(VALUE) ((VALUE) & VFLAG) ? SET_VFLAG : CLEAR_VFLAG
+#define UPDATE_NFLAG(VALUE) ((VALUE) & NFLAG) ? SET_NFLAG : CLEAR_NFLAG
 
 #define UPDATE_ZNFLAGS(VALUE)                                                  \
     UPDATE_ZFLAG(VALUE);                                                       \

@@ -84,6 +84,8 @@ int main(int argc, char *argv[]) {
         exit(EXIT_FAILURE);
     }
 
+    memset(nes, 0, sizeof(*nes));
+
     if (shell_open(nes)) {
         exit(EXIT_FAILURE);
     }
@@ -109,8 +111,6 @@ int main(int argc, char *argv[]) {
         return 1;
     }
     (void)close(fd);
-
-    memset(nes, 0, sizeof(*nes));
 
     if (size == 16 + 32768 + 8192) {
         memcpy(nes->memory + 0x8000, data + 16, 0x8000);
@@ -141,6 +141,7 @@ int main(int argc, char *argv[]) {
 
     for (; !done;) {
         if (ppu_update(nes)) {
+            video_write(nes);
             poll_events(nes, &done);
         }
         apu_update(nes);
