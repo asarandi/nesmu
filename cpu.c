@@ -542,11 +542,22 @@ void jsr_abs(t_cpu *cpu) {
     cpu->PC = newPC;
 } // 0x20
 
-void do_nmi(t_cpu *cpu) {
+int do_nmi(t_cpu *cpu) {
     stack_push16(cpu, cpu->PC);
     stack_push(cpu, cpu->P | 0b00110000);
     SET_IFLAG;
     cpu->PC = read16(cpu, 0xfffa);
+    return 7;
+}
+
+int do_irq(t_cpu *cpu) {
+    if (IS_IFLAG)
+        return 0;
+    stack_push16(cpu, cpu->PC);
+    stack_push(cpu, cpu->P | 0b00110000);
+    SET_IFLAG;
+    cpu->PC = read16(cpu, 0xfffe);
+    return 7;
 }
 
 enum mode {

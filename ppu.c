@@ -83,9 +83,7 @@ int ppu_update(t_nes *nes) {
     nes->NMI_line_status = nes->NMI_occurred && nes->NMI_output;
 
     if (!nes->NMI_line_status_old && nes->NMI_line_status) {
-        // check cpu IFLAG ?
-        do_nmi(&(nes->cpu));
-        nes->cpu.cycles += 7;
+        nes->cpu.cycles += do_nmi(&(nes->cpu));
     }
 
     return retval;

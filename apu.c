@@ -15,6 +15,10 @@ uint8_t apu_read(t_nes *nes, uint16_t addr) {
         for (int i = 0; i < 5; i++) {
             val |= (nes->apu.ch[i].lc.counter > 0) << i;
         }
+        val |= nes->cpu.last_read & 32;
+        val |= nes->apu.frame_interrupt_flag ? 64 : 0;
+        val |= nes->apu.dmc_interrupt_flag ? 128 : 0;
+        nes->apu.frame_interrupt_flag = false;
         return val;
     case JOY1:
         val = nes->cpu.last_read & 248;
@@ -123,11 +127,17 @@ void apu_write(t_nes *nes, uint16_t addr, uint8_t val) {
         break;
 
     case JOY2:
-        nes->apu.cpu_cycles = 0;
+        nes->apu.cpu_cycles_divided = 0;
         if (val & 128) {
             quarter_frame_update(nes);
             half_frame_update(nes);
         }
+
+        nes->apu.frame_counter_mode = (val & 128) != 0;
+        nes->apu.interrupt_inhibit_flag = (val & 64) != 0;
+        nes->apu.frame_interrupt_flag =
+            (val & 64) ? false : nes->apu.frame_interrupt_flag;
+
         break;
 
     default:
@@ -322,9 +332,6 @@ static int16_t mix_samples(t_nes *nes) {
     return retval;
 }
 
-#define FRAME_COUNTER_MODE ((nes->memory[JOY2] & 128) ? 1 : 0)
-#define IS_INTERRUPT_INHIBIT ((nes->memory[JOY2] & 64) ? 1 : 0)
-
 static void apu_tick(t_nes *nes) {
 
     // 2 cpu cycles == 1 apu cycles
@@ -334,10 +341,12 @@ static void apu_tick(t_nes *nes) {
         {7457, 14913, 22371, 29830},
         {7457, 14913, 22371, 37282},
     };
-    i = FRAME_COUNTER_MODE;
+    i = (int)nes->apu.frame_counter_mode;
 
     nes->apu.cpu_cycles += 1;
-    j = nes->apu.cpu_cycles;
+    nes->apu.cpu_cycles_divided += 1;
+
+    j = nes->apu.cpu_cycles_divided;
 
     if (j == sequencer_steps[i][0]) {
         quarter_frame_update(nes);
@@ -350,11 +359,19 @@ static void apu_tick(t_nes *nes) {
         quarter_frame_update(nes);
         half_frame_update(nes);
 
-        nes->apu.cpu_cycles -= sequencer_steps[i][3];
-        if ((i == 0) && (!IS_INTERRUPT_INHIBIT) && (!cpu_is_iflag(nes))) {
-            puts("APU MODE 0 IRQ");
+        nes->apu.cpu_cycles_divided -= sequencer_steps[i][3];
+        if ((i == 0) && (!nes->apu.interrupt_inhibit_flag)) {
+            nes->apu.frame_interrupt_flag = true;
         }
     } else {
+    }
+
+    if (nes->apu.frame_interrupt_flag) {
+        int new_cycles = do_irq(&(nes->cpu));
+        nes->cpu.cycles += new_cycles;
+        if (new_cycles) {
+            puts("APU MODE 0 IRQ");
+        }
     }
 
     timers_tick(nes);

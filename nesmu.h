@@ -98,9 +98,14 @@ typedef struct channel {
 } t_channel;
 
 typedef struct apu {
-    volatile uint32_t timer_cycles;
-    volatile uint32_t cpu_cycles, step_index, prev_step_index;
-    volatile uint64_t audio_output_cycles;
+    uint32_t timer_cycles;
+    uint32_t cpu_cycles_divided, cpu_cycles, scheduled_reset;
+    uint64_t audio_output_cycles;
+    bool frame_sequencer_active;
+    bool frame_counter_mode;
+    bool interrupt_inhibit_flag;
+    bool frame_interrupt_flag;
+    bool dmc_interrupt_flag;
     t_channel ch[5];
 } t_apu;
 
@@ -110,7 +115,7 @@ typedef struct shell {
     SDL_Texture *texture;
     SDL_AudioDeviceID audio_device;
     int16_t buf[512 * 4];
-    volatile int buf_read_index, buf_write_index, num_available;
+    int buf_read_index, buf_write_index, num_available;
     uint8_t joy1;
 } t_shell;
 
@@ -122,13 +127,14 @@ typedef struct nes {
     bool NMI_occurred, NMI_output;
     bool NMI_line_status, NMI_line_status_old;
     uint8_t ppu_registers[8];
-    volatile uint32_t prev_cpu_cycles, ppu_cycles, parity, frame_number;
+    uint32_t prev_cpu_cycles, ppu_cycles, parity, frame_number;
     uint8_t joy1_read_index;
 } t_nes;
 
 bool cpu_is_iflag(t_nes *);
 int run_opcode(t_nes *, bool);
-void do_nmi(t_cpu *);
+int do_nmi(t_cpu *);
+int do_irq(t_cpu *);
 
 int ppu_get_x(t_nes *);
 int ppu_get_y(t_nes *);
