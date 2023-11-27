@@ -42,8 +42,9 @@ typedef struct cpu {
     void *userdata;
     uint8_t (*read)(void *userdata, uint16_t addr);
     void (*write)(void *userdata, uint16_t addr, uint8_t val);
-    volatile uint32_t cycles;
-    volatile uint8_t extra_cycles;
+    uint32_t cycles;
+    uint8_t extra_cycles;
+    uint32_t dmc_halt_cycles;
 } t_cpu;
 
 typedef struct envelope {
@@ -88,6 +89,21 @@ typedef struct lfsr {
     uint16_t shift_register;
 } t_lfsr;
 
+typedef struct dmc {
+    bool enabled;
+    bool irq_enabled_flag;
+    bool loop_flag;
+    uint16_t period; // freq
+    uint16_t counter;
+    uint8_t output; // raw
+    uint8_t start;
+    uint16_t sample_address; // start
+    uint8_t len;
+    uint16_t sample_length; // len
+    uint8_t sample_buffer;
+    uint8_t bits_remaining;
+} t_dmc;
+
 typedef struct channel {
     t_envelope env;
     t_sweep sweep;
@@ -95,6 +111,7 @@ typedef struct channel {
     t_length_counter lc;
     t_linear_counter lin;
     t_lfsr lfsr;
+    t_dmc dmc;
 } t_channel;
 
 typedef struct apu {

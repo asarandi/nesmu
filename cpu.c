@@ -793,6 +793,12 @@ static bool is_endless_loop(t_nes *nes) {
 /* clang-format off */
 int run_opcode(t_nes *nes, bool debug) {
     t_cpu *cpu = &(nes->cpu);
+
+    if (cpu->dmc_halt_cycles) {
+        cpu->dmc_halt_cycles -= 1;
+        return 1;
+    }
+
     uint16_t opcode, pc;
     int retval;
 
