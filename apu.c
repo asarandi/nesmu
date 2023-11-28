@@ -39,7 +39,7 @@ uint8_t apu_read(t_nes *nes, uint16_t addr) {
 static void quarter_frame_update(t_nes *nes);
 static void half_frame_update(t_nes *nes);
 static void dmc_reload(t_channel *, bool);
-static void dmc_next_sample(t_nes *nes, t_channel *, bool);
+static void dmc_next_sample(t_nes *nes, t_channel *);
 
 void apu_write(t_nes *nes, uint16_t addr, uint8_t val) {
     const uint8_t length_table[] = {
@@ -148,13 +148,15 @@ void apu_write(t_nes *nes, uint16_t addr, uint8_t val) {
             }
         }
 
+        // NB: `dmc_next_sample` might set flag, dmc-basics.nes test #19
+        nes->apu.dmc_interrupt_flag = false;
+
         if (val & 16) {
             dmc_reload(CH4, true);
-            dmc_next_sample(nes, CH4, true);
+            dmc_next_sample(nes, CH4);
         } else {
             (CH4)->dmc.sample_length = 0;
         }
-        nes->apu.dmc_interrupt_flag = false;
         break;
 
     case JOY1:
@@ -269,13 +271,13 @@ static void dmc_reload(t_channel *ch, bool enabled) {
     ch->dmc.sample_length = (ch->dmc.len << 4) + 1;
 }
 
-static void dmc_next_sample(t_nes *nes, t_channel *ch, bool enabled) {
-    if (!enabled)
+static void dmc_next_sample(t_nes *nes, t_channel *ch) {
+    if ((ch->dmc.sample_length == 0) || (!ch->dmc.empty_buffer_flag))
         return;
 
-    nes->cpu.dmc_halt_cycles += 4;
+    ch->dmc.empty_buffer_flag = false;
+    // nes->cpu.dmc_halt_cycles += 4;
 
-    ch->dmc.bits_remaining = 8;
     ch->dmc.sample_buffer = nes->memory[ch->dmc.sample_address];
     ch->dmc.sample_address = (ch->dmc.sample_address + 1) | 0x8000;
 
@@ -295,20 +297,30 @@ static void dmc_timer_tick(t_nes *nes, t_channel *ch) {
     }
     ch->dmc.counter = ch->dmc.period;
 
-    if ((!ch->dmc.bits_remaining) && (ch->dmc.sample_length)) {
-        dmc_next_sample(nes, ch, ch->dmc.enabled);
+    if (ch->dmc.empty_buffer_flag) {
+        dmc_next_sample(nes, ch);
     }
 
     if (!ch->dmc.bits_remaining) {
-        return;
+        ch->dmc.bits_remaining = 8;
+        if (ch->dmc.empty_buffer_flag) {
+            ch->dmc.silence_flag = true;
+        } else {
+            ch->dmc.silence_flag = false;
+            ch->dmc.shift_register = ch->dmc.sample_buffer;
+            ch->dmc.empty_buffer_flag = true;
+        }
     }
 
-    if (ch->dmc.sample_buffer & 1) {
-        ch->dmc.output += (ch->dmc.output < 126) ? 2 : 0;
-    } else {
-        ch->dmc.output -= (ch->dmc.output > 1) ? 2 : 0;
+    if (!ch->dmc.silence_flag) {
+        if (ch->dmc.shift_register & 1) {
+            ch->dmc.output += (ch->dmc.output < 126) ? 2 : 0;
+        } else {
+            ch->dmc.output -= (ch->dmc.output > 1) ? 2 : 0;
+        }
     }
-    ch->dmc.sample_buffer >>= 1;
+
+    ch->dmc.shift_register >>= 1;
     ch->dmc.bits_remaining -= 1;
 }
 
@@ -423,7 +435,7 @@ static int16_t mix_samples(t_nes *nes) {
     }
 
     output = pulse_out + tnd_out;
-    output = (output * 2.0) - 1.0;
+    output = (output * 2.0) - 0.5;
     retval = (int16_t)((double)INT16_MAX * output);
     return retval;
 }
@@ -472,12 +484,16 @@ static void apu_tick(t_nes *nes) {
 
     apu_timers_tick(nes);
 
+    int16_t s = mix_samples(nes);
+    s = filter_highpass(nes->shell.hpf1alpha, &(nes->shell.hpf1cap), s);
+    s = filter_highpass(nes->shell.hpf2alpha, &(nes->shell.hpf2cap), s);
+    s = filter_lowpass(nes->shell.lpf1alpha, &(nes->shell.lpf1cap), s);
+
     /* (1_789_773 * 16000) / 48000 == 596591.0 */
     nes->apu.audio_output_cycles += 16000;
     while (nes->apu.audio_output_cycles >= 596591) {
         nes->apu.audio_output_cycles -= 596591;
-        int16_t sample = mix_samples(nes);
-        audio_enqueue_sample(nes, sample);
+        audio_enqueue_sample(nes, s);
     }
 }
 

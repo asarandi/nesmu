@@ -23,8 +23,10 @@ uint8_t cpu_read(void *userdata, uint16_t addr) {
         return ppu_read(userdata, 0x2000 + (addr & 7));
     } else if (0x4000 <= addr && addr < 0x4020) {
         // APU
-        // printf("APU read, addr: %04x, value: %02x\n", addr, memory[addr]);
-        return apu_read(userdata, addr);
+        uint8_t val = apu_read(userdata, addr);
+        // printf("APU read, addr: %04x, value: %02x, cpu = %8d\n",
+        //     addr, val, nes->cpu.cycles);
+        return val;
     }
 
     return nes->memory[addr];
@@ -50,7 +52,8 @@ void cpu_write(void *userdata, uint16_t addr, uint8_t val) {
         return;
     } else if (0x4000 <= addr && addr < 0x4020) {
         // APU
-        // printf("APU write addr:%04x val:%02x\n", addr, val);
+        // printf("APU write addr:%04x val:%02x cpu = %8d\n",
+        //     addr, val, nes->cpu.cycles);
         apu_write(userdata, addr, val);
         return;
     }

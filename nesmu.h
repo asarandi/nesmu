@@ -36,6 +36,8 @@
 #define JOY1 0x4016
 #define JOY2 0x4017
 
+#define SAMPLING_FREQUENCY 48000
+
 typedef struct cpu {
     uint8_t A, X, Y, S, P, u8, last_read;
     uint16_t PC, u16;
@@ -102,6 +104,9 @@ typedef struct dmc {
     uint16_t sample_length; // len
     uint8_t sample_buffer;
     uint8_t bits_remaining;
+    uint8_t shift_register;
+    bool empty_buffer_flag;
+    bool silence_flag;
 } t_dmc;
 
 typedef struct channel {
@@ -131,6 +136,14 @@ typedef struct shell {
     SDL_Renderer *renderer;
     SDL_Texture *texture;
     SDL_AudioDeviceID audio_device;
+
+    int32_t hpf1alpha;
+    int32_t hpf1cap;
+    int32_t hpf2alpha;
+    int32_t hpf2cap;
+    int32_t lpf1alpha;
+    int32_t lpf1cap;
+
     int16_t buf[512 * 4];
     int buf_read_index, buf_write_index, num_available;
     uint8_t joy1;
@@ -169,5 +182,9 @@ int shell_close(t_nes *);
 int poll_events(t_nes *, int *);
 void audio_enqueue_sample(t_nes *, int16_t);
 int video_write(t_nes *);
+
+int32_t filter_get_alpha(uint32_t, uint32_t);
+int16_t filter_highpass(int32_t, int32_t *, int16_t);
+int16_t filter_lowpass(int32_t, int32_t *, int16_t);
 
 #endif

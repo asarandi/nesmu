@@ -24,6 +24,7 @@ void audio_enqueue_sample(t_nes *nes, int16_t sample) {
     while (nes->shell.num_available > 1536) {
         SDL_Delay(1);
     }
+
     nes->shell.buf[nes->shell.buf_write_index] = sample;
     nes->shell.num_available += 1;
     nes->shell.buf_write_index += 1;
@@ -46,7 +47,7 @@ static int audio_open(t_nes *nes) {
 
     (void)SDL_memset(&spec, 0, sizeof(SDL_AudioSpec));
 
-    spec.freq = 48000;
+    spec.freq = SAMPLING_FREQUENCY;
     spec.format = AUDIO_S16;
     spec.channels = 1;
     spec.samples = 512;
@@ -61,6 +62,11 @@ static int audio_open(t_nes *nes) {
     }
 
     (void)SDL_PauseAudioDevice(nes->shell.audio_device, 0);
+
+    // https://www.nesdev.org/wiki/APU_Mixer
+    nes->shell.hpf1alpha = filter_get_alpha(SAMPLING_FREQUENCY, 90);
+    nes->shell.hpf2alpha = filter_get_alpha(SAMPLING_FREQUENCY, 440);
+    nes->shell.lpf1alpha = filter_get_alpha(SAMPLING_FREQUENCY, 14000);
     return 0;
 }
 
