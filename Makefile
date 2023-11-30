@@ -7,7 +7,7 @@ CFLAGS += -Wno-unused-function
 CFLAGS += -g -Wall -Werror -Wextra
 CFLAGS += $(shell sdl2-config --cflags)
 LDFLAGS += -g $(shell sdl2-config --libs) -lm
-SRC = main.c cpu.c ppu.c apu.c shell.c filter.c
+SRC = main.c cpu.c ppu.c apu.c shell.c
 
 nesmu: $(SRC:.c=.o)
 	$(CC) -o $@ $^ $(LDFLAGS)

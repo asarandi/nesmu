@@ -412,8 +412,9 @@ static void apu_timers_tick(t_nes *nes) {
 static int16_t mix_samples(t_nes *nes) {
     // https://www.nesdev.org/wiki/APU_Mixer
 
-    int16_t s0, s1, s2, s3, s4, retval;
     double calc, pulse_out, tnd_out, output;
+    int16_t s0, s1, s2, s3, s4;
+    int32_t out;
 
     s0 = s1 = s2 = s3 = s4 = 0;
     s0 = pulse_sample(CH0);
@@ -434,10 +435,13 @@ static int16_t mix_samples(t_nes *nes) {
         tnd_out = 159.79 / (1.0 / calc + 100.0);
     }
 
-    output = pulse_out + tnd_out;
-    output = (output * 2.0) - 0.5;
-    retval = (int16_t)((double)INT16_MAX * output);
-    return retval;
+    calc = (pulse_out + tnd_out) * 2.0;
+    output = calc - nes->apu.capacitor;
+    nes->apu.capacitor = calc - output * 0.999929;
+    out = (double)INT16_MAX * output;
+    out = out > INT16_MAX ? INT16_MAX : out;
+    out = out < INT16_MIN ? INT16_MIN : out;
+    return (int16_t)out;
 }
 
 static void apu_tick(t_nes *nes) {
@@ -484,16 +488,13 @@ static void apu_tick(t_nes *nes) {
 
     apu_timers_tick(nes);
 
-    int16_t s = mix_samples(nes);
-    s = filter_highpass(nes->shell.hpf1alpha, &(nes->shell.hpf1cap), s);
-    s = filter_highpass(nes->shell.hpf2alpha, &(nes->shell.hpf2cap), s);
-    s = filter_lowpass(nes->shell.lpf1alpha, &(nes->shell.lpf1cap), s);
+    int16_t sample = mix_samples(nes);
 
     /* (1_789_773 * 16000) / 48000 == 596591.0 */
     nes->apu.audio_output_cycles += 16000;
     while (nes->apu.audio_output_cycles >= 596591) {
         nes->apu.audio_output_cycles -= 596591;
-        audio_enqueue_sample(nes, s);
+        audio_enqueue_sample(nes, sample);
     }
 }
 

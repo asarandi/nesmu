@@ -120,6 +120,7 @@ typedef struct channel {
 } t_channel;
 
 typedef struct apu {
+    double capacitor;
     uint32_t timer_cycles;
     uint32_t cpu_cycles_divided, cpu_cycles, scheduled_reset;
     uint64_t audio_output_cycles;
@@ -136,14 +137,6 @@ typedef struct shell {
     SDL_Renderer *renderer;
     SDL_Texture *texture;
     SDL_AudioDeviceID audio_device;
-
-    int32_t hpf1alpha;
-    int32_t hpf1cap;
-    int32_t hpf2alpha;
-    int32_t hpf2cap;
-    int32_t lpf1alpha;
-    int32_t lpf1cap;
-
     int16_t buf[512 * 4];
     int buf_read_index, buf_write_index, num_available;
     uint8_t joy1;

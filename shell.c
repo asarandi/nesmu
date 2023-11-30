@@ -62,11 +62,6 @@ static int audio_open(t_nes *nes) {
     }
 
     (void)SDL_PauseAudioDevice(nes->shell.audio_device, 0);
-
-    // https://www.nesdev.org/wiki/APU_Mixer
-    nes->shell.hpf1alpha = filter_get_alpha(SAMPLING_FREQUENCY, 90);
-    nes->shell.hpf2alpha = filter_get_alpha(SAMPLING_FREQUENCY, 440);
-    nes->shell.lpf1alpha = filter_get_alpha(SAMPLING_FREQUENCY, 14000);
     return 0;
 }
 
