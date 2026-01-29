@@ -584,7 +584,7 @@ typedef struct instruction {
     uint8_t num_bytes;
     uint8_t num_cycles;
     bool has_extra_cycles;
-} t_ins;
+} t_instruction;
 
 struct instruction insns[] = {
     {0x69, adc_imm, "adc", immediate, 2, 2, false},
@@ -775,7 +775,7 @@ struct instruction insns[] = {
 // 3 bytes absolute_y
 // 3 bytes indirect
 
-t_ins *get_instruction(uint8_t opcode) {
+t_instruction *get_instruction(uint8_t opcode) {
     for (int i = 0; i < 151; i++) {
         if (insns[i].opcode == opcode)
             return &insns[i];
@@ -804,11 +804,16 @@ int run_opcode(t_nes *nes, bool debug) {
 
     opcode = cpu->read(cpu->userdata, cpu->PC);
     cpu->last_read = opcode;
-    t_ins *ins = get_instruction(opcode);
+
+    t_instruction *instruction = get_instruction(opcode);
+    if (!instruction) {
+        printf("unknown instruction %02x\n", opcode);
+        exit(1);
+    }
 
     if (debug) {
         printf("PC: %04x Ins: %s Bytes: %02x%02x%02x VBL:%d A:%02X X:%02X Y:%02X P:%02X SP:%02X PPU:%3d,%3d CYC:%d\n",
-            cpu->PC, ins ? ins->name : "???",
+            cpu->PC, instruction ? instruction->name : "???",
             nes->memory[cpu->PC],
             nes->memory[cpu->PC + 1],
             nes->memory[cpu->PC + 2],
@@ -823,11 +828,6 @@ int run_opcode(t_nes *nes, bool debug) {
             cpu->cycles);
     }
 
-    if (!ins) {
-        printf("unknown instruction %02x\n", opcode);
-        exit(1);
-    }
-
     if (is_endless_loop(nes)) {
         printf("endless loop detected\n");
         exit(1);
@@ -835,12 +835,13 @@ int run_opcode(t_nes *nes, bool debug) {
 
     pc = cpu->PC;
     cpu->extra_cycles = 0;
-    ins->fn(cpu);
+
+    instruction->fn(cpu);
     if ((cpu->PC == pc) && (opcode != 0x4c)) {
-        cpu->PC += ins->num_bytes;
+        cpu->PC += instruction->num_bytes;
     }
 
-    retval = ins->num_cycles;
-    retval += ins->has_extra_cycles ? cpu->extra_cycles : 0;
+    retval = instruction->num_cycles;
+    retval += instruction->has_extra_cycles ? cpu->extra_cycles : 0;
     return retval;
 }
