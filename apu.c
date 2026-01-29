@@ -230,13 +230,13 @@ static void length_counter_tick(t_channel *ch, bool disabled_flag) {
     }
 }
 
-static void pulse_timer_tick(t_channel *ch, bool phase_advance,
+static void pulse_timer_tick(t_channel *ch, bool is_phase_advance,
                              uint8_t phase_mask) {
     if (ch->timer.divider) {
         ch->timer.divider -= 1;
     } else {
         ch->timer.divider = ch->timer.period;
-        if (phase_advance) {
+        if (is_phase_advance) {
             ch->timer.phase = (ch->timer.phase + 1) & phase_mask;
         }
     }
@@ -392,12 +392,12 @@ static void apu_timers_tick(t_nes *nes) {
 
     nes->apu.timer_cycles++;
 
-    bool cond = (CH2)->lin.counter > 0;
-    cond &= (CH2)->lc.counter > 0;
+    bool is_phase_advance = (CH2)->lin.counter > 0;
+    is_phase_advance &= (CH2)->lc.counter > 0;
     // triangle: to avoid "ultrasonic frequencies"
     // do not change phase when period < 2
-    cond &= (CH2)->timer.period > 1;
-    pulse_timer_tick(CH2, cond, 31);
+    is_phase_advance &= (CH2)->timer.period > 1;
+    pulse_timer_tick(CH2, is_phase_advance, 31);
 
     if (nes->apu.timer_cycles < 2)
         return;
