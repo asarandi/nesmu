@@ -15,8 +15,5 @@ nesmu: $(SRC:.c=.o)
 fclean:
 	rm -f nesmu *.o
 
-calc: calc.c
-	gcc -o calc -Wall -Werror -Wextra -I sha1/ calc.c sha1/sha1.c
-
 format:
 	clang-format -i *.c *.h

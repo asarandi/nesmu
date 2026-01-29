@@ -108,12 +108,11 @@ int main(int argc, char *argv[]) {
     size = st.st_size;
 
     data = mmap(0, size, PROT_READ, MAP_PRIVATE, fd, 0);
+    (void)close(fd);
     if (data == NULL) {
         perror("mmap()");
-        close(fd);
         return 1;
     }
-    (void)close(fd);
 
     if (size == 16 + 32768 + 8192) {
         memcpy(nes->memory + 0x8000, data + 16, 0x8000);
@@ -142,7 +141,7 @@ int main(int argc, char *argv[]) {
     nes->apu.ch[2].timer.phase = 16;
     nes->apu.ch[3].lfsr.shift_register = 1;
 
-    for (; !done;) {
+    while (!done) {
         if (ppu_update(nes)) {
             video_write(nes);
             poll_events(nes, &done);

@@ -176,8 +176,4 @@ int poll_events(t_nes *, int *);
 void audio_enqueue_sample(t_nes *, int16_t);
 int video_write(t_nes *);
 
-int32_t filter_get_alpha(uint32_t, uint32_t);
-int16_t filter_highpass(int32_t, int32_t *, int16_t);
-int16_t filter_lowpass(int32_t, int32_t *, int16_t);
-
 #endif
